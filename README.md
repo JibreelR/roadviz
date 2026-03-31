@@ -2,7 +2,7 @@
 
 RoadViz is a pavement engineering web application for storing, analyzing, visualizing, mapping, and reporting pavement evaluation data.
 
-This repository now contains the initial MVP scaffold:
+This repository contains the initial MVP scaffold:
 
 - `apps/web`: Next.js + TypeScript frontend
 - `apps/api`: FastAPI backend
@@ -22,17 +22,21 @@ For Windows development, install:
 
 - Docker Desktop
 - PowerShell
+- Docker Desktop must be running before you start the stack
 
 ## Quick Start (Windows PowerShell)
 
 From the repository root:
 
 ```powershell
-Copy-Item .env.example .env
+cd C:\Users\jibre\Documents\roadviz
+Copy-Item .env.example .env -Force
 docker compose --env-file .env -f infra/compose/docker-compose.yml up --build
 ```
 
-After the services start:
+The first build may take a few minutes while Docker downloads the base images and installs dependencies.
+
+After the services start, verify:
 
 - Web app: `http://localhost:3000`
 - API root: `http://localhost:8000`
@@ -40,10 +44,24 @@ After the services start:
 - API docs: `http://localhost:8000/docs`
 - PostGIS: `localhost:5432`
 
+You can also verify from PowerShell:
+
+```powershell
+docker compose --env-file .env -f infra/compose/docker-compose.yml ps
+Invoke-WebRequest http://localhost:8000/health | Select-Object -ExpandProperty Content
+docker compose --env-file .env -f infra/compose/docker-compose.yml exec api python -m unittest discover -s tests -p "test_*.py"
+```
+
 To stop the stack:
 
 ```powershell
 docker compose --env-file .env -f infra/compose/docker-compose.yml down
+```
+
+To stop and remove the local PostGIS volume:
+
+```powershell
+docker compose --env-file .env -f infra/compose/docker-compose.yml down -v
 ```
 
 ## Repository Layout

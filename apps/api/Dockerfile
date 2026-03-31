@@ -9,9 +9,10 @@ RUN pip install --upgrade pip
 
 COPY apps/api/pyproject.toml ./pyproject.toml
 COPY apps/api/app ./app
+COPY apps/api/tests ./tests
 
 RUN pip install .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

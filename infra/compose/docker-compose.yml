@@ -19,13 +19,27 @@ services:
     build:
       context: ../..
       dockerfile: apps/api/Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://roadviz:roadviz_dev_password@db:5432/roadviz}
+    working_dir: /app/apps/api
+    volumes:
+      - ../../apps/api:/app/apps/api
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   web:
     build:
@@ -33,12 +47,22 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    command: pnpm dev --hostname 0.0.0.0 --port 3000
     environment:
+      NEXT_TELEMETRY_DISABLED: "1"
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    working_dir: /app/apps/web
+    volumes:
+      - ../../apps/web:/app/apps/web
+      - ../../package.json:/app/package.json:ro
+      - ../../pnpm-workspace.yaml:/app/pnpm-workspace.yaml:ro
+      - web_node_modules:/app/apps/web/node_modules
     ports:
       - "${WEB_PORT:-3000}:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  web_node_modules:
