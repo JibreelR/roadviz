@@ -1,2 +1,5 @@
-# roadviz
-roadviz application to analyze and visualize pavement testing data
+# RoadViz
+
+Initial repository setup.
+
+RoadViz local setup started.
