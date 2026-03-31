@@ -77,4 +77,9 @@ infra/
 
 ## Current Scope
 
-This is only the initial scaffold. It does not yet include project CRUD, upload parsing, validation, normalization, analysis workflows, authentication, or reporting pipelines.
+The repository now includes the first MVP product object:
+
+- Project CRUD foundation in the FastAPI backend with an in-memory repository
+- A Next.js Projects page for creating and listing projects
+
+It does not yet include upload parsing, validation, normalization, analysis workflows, authentication, or reporting pipelines.

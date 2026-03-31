@@ -7,6 +7,8 @@
   --muted: #506257;
   --accent: #a4572a;
   --shadow: 0 24px 60px rgba(26, 46, 36, 0.08);
+  --success: #2d6a4f;
+  --error: #b00020;
 }
 
 * {
@@ -28,6 +30,10 @@ body {
   min-height: 100vh;
 }
 
+a {
+  color: inherit;
+}
+
 .page-shell {
   width: min(960px, calc(100% - 2rem));
   margin: 0 auto;
@@ -36,6 +42,10 @@ body {
 
 .hero {
   margin-bottom: 2rem;
+}
+
+.hero-compact {
+  margin-bottom: 2.5rem;
 }
 
 .eyebrow {
@@ -60,6 +70,12 @@ body {
   font-size: 1.05rem;
   line-height: 1.7;
   color: var(--muted);
+}
+
+.hero-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
 }
 
 .card-grid {
@@ -90,9 +106,233 @@ body {
   color: var(--muted);
 }
 
+.stack-lg {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.panel {
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(6px);
+}
+
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: end;
+  margin-bottom: 1.25rem;
+}
+
+.section-heading h2 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.section-copy {
+  max-width: 32rem;
+  margin: 0;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.project-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.form-grid label {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.form-grid span {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.field-full {
+  grid-column: 1 / -1;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid rgba(26, 46, 36, 0.18);
+  border-radius: 12px;
+  padding: 0.85rem 0.95rem;
+  font: inherit;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+textarea {
+  resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid rgba(164, 87, 42, 0.18);
+  border-color: var(--accent);
+}
+
+.form-actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.button-primary,
+.button-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border-radius: 999px;
+  padding: 0 1.15rem;
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.button-primary {
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 12px 24px rgba(164, 87, 42, 0.18);
+}
+
+.button-secondary {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.button-primary:hover,
+.button-secondary:hover {
+  transform: translateY(-1px);
+}
+
+.button-primary:disabled {
+  cursor: wait;
+  opacity: 0.7;
+  transform: none;
+}
+
+.inline-note,
+.empty-state,
+.message,
+.table-secondary {
+  color: var(--muted);
+}
+
+.inline-note,
+.message,
+.empty-state {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.message.error {
+  color: var(--error);
+}
+
+.message.success {
+  color: var(--success);
+}
+
+.table-shell {
+  overflow-x: auto;
+}
+
+.projects-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.projects-table th,
+.projects-table td {
+  padding: 0.95rem 0.75rem;
+  border-top: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.projects-table th {
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.table-primary {
+  font-weight: 600;
+}
+
+.table-secondary {
+  margin-top: 0.25rem;
+  font-size: 0.92rem;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.3rem 0.65rem;
+  background: rgba(26, 46, 36, 0.08);
+  font-size: 0.92rem;
+  text-transform: capitalize;
+}
+
+.status-draft {
+  background: rgba(80, 98, 87, 0.14);
+}
+
+.status-active {
+  background: rgba(45, 106, 79, 0.16);
+}
+
+.status-completed {
+  background: rgba(164, 87, 42, 0.14);
+}
+
+.status-archived {
+  background: rgba(26, 46, 36, 0.12);
+}
+
 @media (max-width: 640px) {
   .page-shell {
     width: min(100% - 1.25rem, 960px);
     padding-top: 3rem;
+  }
+
+  .section-heading,
+  .form-actions {
+    align-items: start;
+  }
+
+  .section-heading,
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .projects-table {
+    min-width: 720px;
   }
 }
