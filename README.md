@@ -55,7 +55,10 @@ You can also verify from PowerShell:
 docker compose --env-file .env -f infra/compose/docker-compose.yml ps
 Invoke-WebRequest http://localhost:8000/health | Select-Object -ExpandProperty Content
 docker compose --env-file .env -f infra/compose/docker-compose.yml exec api python -m unittest discover -s tests -p "test_*.py"
+docker compose --env-file .env -f infra/compose/docker-compose.yml --profile verification run --rm web-verify
 ```
+
+Use the `web-verify` command for frontend build verification. Do not run `docker compose exec web npm run build` against the live `web` dev container, because `next dev` and `next build` both write to `.next` and can leave the running dev server out of sync.
 
 To stop the stack:
 
@@ -98,6 +101,7 @@ From the repository root after the Docker stack is running:
 
 ```powershell
 docker compose --env-file .env -f infra/compose/docker-compose.yml exec api python -m unittest discover -s tests -p "test_*.py"
+docker compose --env-file .env -f infra/compose/docker-compose.yml --profile verification run --rm web-verify
 ```
 
 Then in the browser:
