@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useState, useTransition } from "react";
 
 import {
@@ -364,6 +365,7 @@ export default function ProjectsClient() {
                   <th>Limits</th>
                   <th>Status</th>
                   <th>Updated</th>
+                  <th>Uploads</th>
                 </tr>
               </thead>
               <tbody>
@@ -386,6 +388,14 @@ export default function ProjectsClient() {
                       </span>
                     </td>
                     <td>{formatTimestamp(project.updated_at)}</td>
+                    <td>
+                      <Link
+                        className="button-secondary button-inline"
+                        href={`/projects/${project.id}/uploads`}
+                      >
+                        Open uploads
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>

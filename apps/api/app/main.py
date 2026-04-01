@@ -1,7 +1,12 @@
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
 
 from app.api.routes.projects import router as projects_router
+from app.api.routes.schema_templates import router as schema_templates_router
+from app.api.routes.uploads import router as uploads_router
 from app.projects.repository import InMemoryProjectRepository
+from app.schema_templates.repository import InMemorySchemaTemplateRepository
+from app.uploads.repository import InMemoryUploadRepository
 
 app = FastAPI(
     title="RoadViz API",
@@ -9,8 +14,23 @@ app = FastAPI(
     description="RoadViz MVP API with foundational Project CRUD support.",
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.state.project_repository = InMemoryProjectRepository()
+app.state.upload_repository = InMemoryUploadRepository()
+app.state.schema_template_repository = InMemorySchemaTemplateRepository()
 app.include_router(projects_router)
+app.include_router(uploads_router)
+app.include_router(schema_templates_router)
 
 
 @app.get("/", tags=["meta"])

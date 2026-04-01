@@ -2,16 +2,13 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.api.dependencies import get_project_repository
 from app.projects.repository import ProjectRepository
 from app.projects.schemas import Project, ProjectWrite
 
 router = APIRouter(prefix="/projects", tags=["projects"])
-
-
-def get_project_repository(request: Request) -> ProjectRepository:
-    return request.app.state.project_repository
 
 
 def _read_project_or_404(

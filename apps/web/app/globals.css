@@ -111,6 +111,11 @@ a {
   gap: 1.25rem;
 }
 
+.stack-sm {
+  display: grid;
+  gap: 0.75rem;
+}
+
 .panel {
   padding: 1.5rem;
   border: 1px solid var(--border);
@@ -235,6 +240,11 @@ textarea:focus {
   transform: none;
 }
 
+.button-inline {
+  min-height: 36px;
+  padding: 0 0.95rem;
+}
+
 .inline-note,
 .empty-state,
 .message,
@@ -316,6 +326,79 @@ textarea:focus {
   background: rgba(26, 46, 36, 0.12);
 }
 
+.status-received {
+  background: rgba(45, 106, 79, 0.12);
+}
+
+.status-mapping_pending {
+  background: rgba(164, 87, 42, 0.14);
+}
+
+.status-processing {
+  background: rgba(72, 110, 164, 0.16);
+}
+
+.status-failed {
+  background: rgba(176, 0, 32, 0.12);
+}
+
+.context-banner {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  margin-top: 1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.template-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.template-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+}
+
+.mapping-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.mapping-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  font-size: 0.95rem;
+}
+
+.mapping-row span {
+  color: var(--muted);
+}
+
+.mapping-row code {
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(26, 46, 36, 0.08);
+}
+
 @media (max-width: 640px) {
   .page-shell {
     width: min(100% - 1.25rem, 960px);
@@ -327,9 +410,15 @@ textarea:focus {
     align-items: start;
   }
 
+  .context-banner,
   .section-heading,
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .context-banner {
+    flex-direction: column;
+    align-items: start;
   }
 
   .projects-table {

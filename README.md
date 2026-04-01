@@ -36,6 +36,11 @@ docker compose --env-file .env -f infra/compose/docker-compose.yml up --build
 
 The first build may take a few minutes while Docker downloads the base images and installs dependencies.
 
+Keep `NEXT_PUBLIC_API_BASE_URL` pointed to a browser-reachable address for local development:
+
+- Use `http://localhost:8000`
+- Do not use the Docker service hostname such as `http://api:8000` in the frontend env, because the browser cannot resolve that name
+
 After the services start, verify:
 
 - Web app: `http://localhost:3000`
