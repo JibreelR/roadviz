@@ -13,6 +13,8 @@ class UploadRepository(Protocol):
 
     def list_by_project(self, project_id: UUID) -> list[Upload]: ...
 
+    def get(self, upload_id: UUID) -> Upload | None: ...
+
 
 class InMemoryUploadRepository:
     """Store upload records in memory until a database-backed layer is introduced."""
@@ -42,3 +44,12 @@ class InMemoryUploadRepository:
             ]
 
         return sorted(uploads, key=lambda upload: upload.uploaded_at, reverse=True)
+
+    def get(self, upload_id: UUID) -> Upload | None:
+        with self._lock:
+            upload = self._uploads.get(upload_id)
+
+        if upload is None:
+            return None
+
+        return upload.model_copy(deep=True)

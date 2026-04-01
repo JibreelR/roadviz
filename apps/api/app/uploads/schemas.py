@@ -27,6 +27,11 @@ class UploadStatus(StrEnum):
     FAILED = "failed"
 
 
+class PreviewStatus(StrEnum):
+    STUBBED = "stubbed"
+    PARSED = "parsed"
+
+
 def detect_file_format(filename: str) -> FileFormat:
     extension = Path(filename).suffix.lower()
     if extension == ".csv":
@@ -66,3 +71,17 @@ class Upload(UploadWrite):
 
     id: UUID
     uploaded_at: datetime
+
+
+class SourceColumnPreview(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    sample_values: list[str | None] = Field(default_factory=list)
+    inferred_type: str | None = Field(default=None, max_length=50)
+
+
+class UploadPreview(BaseModel):
+    upload: Upload
+    preview_status: PreviewStatus
+    source_columns: list[SourceColumnPreview] = Field(default_factory=list)
+    sample_rows: list[dict[str, str | None]] = Field(default_factory=list)
+    row_count_estimate: int | None = None

@@ -363,6 +363,7 @@ export default function UploadsClient({
                   <th>Status</th>
                   <th>Uploaded</th>
                   <th>Notes</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -380,6 +381,14 @@ export default function UploadsClient({
                     </td>
                     <td>{formatTimestamp(upload.uploaded_at)}</td>
                     <td>{upload.notes ?? "None"}</td>
+                    <td>
+                      <Link
+                        className="button-secondary button-inline"
+                        href={`/projects/${selectedProjectId}/uploads/${upload.id}/mapping`}
+                      >
+                        Map columns
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>

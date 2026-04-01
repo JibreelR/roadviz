@@ -25,6 +25,78 @@ export type SchemaTemplate = {
   updated_at: string;
 };
 
+export type PreviewStatus = "stubbed" | "parsed";
+
+export type SourceColumnPreview = {
+  name: string;
+  sample_values: Array<string | null>;
+  inferred_type: string | null;
+};
+
+export type UploadPreview = {
+  upload: UploadRecord;
+  preview_status: PreviewStatus;
+  source_columns: SourceColumnPreview[];
+  sample_rows: Array<Record<string, string | null>>;
+  row_count_estimate: number | null;
+};
+
+export type CanonicalFieldCategory =
+  | "identifier"
+  | "location"
+  | "measurement"
+  | "context";
+
+export type CanonicalFieldDefinition = {
+  key: string;
+  label: string;
+  description: string;
+  required: boolean;
+  allow_multiple: boolean;
+  category: CanonicalFieldCategory;
+  example_source_headers: string[];
+};
+
+export type MappingDefinition = {
+  data_type: DataType;
+  supported_file_formats: FileFormat[];
+  canonical_fields: CanonicalFieldDefinition[];
+};
+
+export type ColumnMappingAssignment = {
+  source_column: string;
+  canonical_field: string | null;
+};
+
+export type UploadMappingState = {
+  upload_id: string;
+  project_id: string;
+  data_type: DataType;
+  assignments: ColumnMappingAssignment[];
+  updated_at: string | null;
+  is_saved: boolean;
+};
+
+export type MappingValidationSeverity = "error" | "warning";
+
+export type MappingValidationIssue = {
+  code: string;
+  severity: MappingValidationSeverity;
+  message: string;
+  source_column: string | null;
+  canonical_field: string | null;
+};
+
+export type MappingValidationResult = {
+  upload_id: string;
+  data_type: DataType;
+  is_valid: boolean;
+  issues: MappingValidationIssue[];
+  mapped_field_count: number;
+  required_field_count: number;
+  satisfied_required_field_count: number;
+};
+
 const API_BASE_URL =
   (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
@@ -85,4 +157,60 @@ export async function listSchemaTemplates(
     method: "GET",
     signal,
   });
+}
+
+export async function getUploadPreview(
+  uploadId: string,
+  signal?: AbortSignal,
+): Promise<UploadPreview> {
+  return requestJson<UploadPreview>(`/uploads/${uploadId}/preview`, {
+    method: "GET",
+    signal,
+  });
+}
+
+export async function getMappingDefinitions(
+  dataType: DataType,
+  signal?: AbortSignal,
+): Promise<MappingDefinition> {
+  return requestJson<MappingDefinition>(
+    `/mapping-definitions?data_type=${encodeURIComponent(dataType)}`,
+    {
+      method: "GET",
+      signal,
+    },
+  );
+}
+
+export async function getUploadMapping(
+  uploadId: string,
+  signal?: AbortSignal,
+): Promise<UploadMappingState> {
+  return requestJson<UploadMappingState>(`/uploads/${uploadId}/mapping`, {
+    method: "GET",
+    signal,
+  });
+}
+
+export async function saveUploadMapping(input: {
+  uploadId: string;
+  assignments: ColumnMappingAssignment[];
+}): Promise<UploadMappingState> {
+  return requestJson<UploadMappingState>(`/uploads/${input.uploadId}/mapping`, {
+    method: "POST",
+    body: JSON.stringify({ assignments: input.assignments }),
+  });
+}
+
+export async function validateUploadMapping(input: {
+  uploadId: string;
+  assignments: ColumnMappingAssignment[];
+}): Promise<MappingValidationResult> {
+  return requestJson<MappingValidationResult>(
+    `/uploads/${input.uploadId}/validate-mapping`,
+    {
+      method: "POST",
+      body: JSON.stringify({ assignments: input.assignments }),
+    },
+  );
 }

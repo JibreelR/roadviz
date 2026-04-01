@@ -85,6 +85,25 @@ infra/
 The repository now includes the first MVP product object:
 
 - Project CRUD foundation in the FastAPI backend with an in-memory repository
-- A Next.js Projects page for creating and listing projects
+- Upload intake records tied to projects
+- Schema templates for supported pavement data types
+- Upload preview, source-to-canonical mapping, and validation foundation
+- A Next.js Projects and Uploads workflow for creating records and mapping source columns
 
 It does not yet include upload parsing, validation, normalization, analysis workflows, authentication, or reporting pipelines.
+
+## Mapping Foundation Verification
+
+From the repository root after the Docker stack is running:
+
+```powershell
+docker compose --env-file .env -f infra/compose/docker-compose.yml exec api python -m unittest discover -s tests -p "test_*.py"
+```
+
+Then in the browser:
+
+1. Open `http://localhost:3000/projects`
+2. Create or open a project
+3. Go to the Uploads page and record a CSV or XLSX upload
+4. Use the new `Map columns` action for that upload
+5. Confirm the page shows upload metadata, stub preview columns, canonical RoadViz fields, saveable mappings, and validation feedback
