@@ -56,10 +56,12 @@ def default_template_seeds() -> list[SchemaTemplateSeed]:
             name="GPR Baseline",
             data_type=DataType.GPR,
             field_mappings={
-                "segment_id": "segment_id",
-                "scan_distance_ft": "distance_ft",
-                "dielectric": "dielectric",
-                "surface_temp_f": "surface_temp_f",
+                "scan": "scan",
+                "distance": "distance",
+                "latitude": "latitude",
+                "longitude": "longitude",
+                "channel_number": "channel_number",
+                "interface_depth_1": "interface_depth_1",
             },
         ),
         SchemaTemplateSeed(

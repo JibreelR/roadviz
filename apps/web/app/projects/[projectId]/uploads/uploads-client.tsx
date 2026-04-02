@@ -17,11 +17,25 @@ import { listProjects, type Project } from "../../../../lib/projects";
 type UploadFormState = {
   dataType: DataType;
   notes: string;
+  gpr: {
+    fileIdentifier: string;
+    channelCount: number;
+    channelLabels: string[];
+    interfaceCount: number;
+    interfaceLabels: string[];
+  };
 };
 
 const initialFormState: UploadFormState = {
   dataType: "gpr",
   notes: "",
+  gpr: {
+    fileIdentifier: "",
+    channelCount: 1,
+    channelLabels: [""],
+    interfaceCount: 1,
+    interfaceLabels: [""],
+  },
 };
 
 const dataTypeOptions: Array<{ value: DataType; label: string }> = [
@@ -36,6 +50,29 @@ function formatTimestamp(timestamp: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(timestamp));
+}
+
+function clampCount(value: string, max: number): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return 1;
+  }
+  return Math.min(parsed, max);
+}
+
+function resizeLabels(labels: string[], count: number): string[] {
+  return Array.from({ length: count }, (_, index) => labels[index] ?? "");
+}
+
+function buildLabelMap(labels: string[]): Record<number, string> {
+  const mappedLabels: Record<number, string> = {};
+  labels.forEach((label, index) => {
+    const normalized = label.trim();
+    if (normalized) {
+      mappedLabels[index + 1] = normalized;
+    }
+  });
+  return mappedLabels;
 }
 
 export default function UploadsClient({
@@ -190,6 +227,21 @@ export default function UploadsClient({
       return;
     }
 
+    if (form.dataType === "gpr") {
+      if (!form.gpr.fileIdentifier.trim()) {
+        setErrorMessage("GPR uploads require a file identifier before mapping.");
+        return;
+      }
+      if (form.gpr.channelCount < 1) {
+        setErrorMessage("GPR channel count must be at least 1.");
+        return;
+      }
+      if (form.gpr.interfaceCount < 1) {
+        setErrorMessage("GPR interface count must be at least 1.");
+        return;
+      }
+    }
+
     startTransition(() => {
       void (async () => {
         try {
@@ -198,10 +250,24 @@ export default function UploadsClient({
             dataType: form.dataType,
             notes: form.notes.trim(),
             file: selectedFile,
+            gprImportConfig:
+              form.dataType === "gpr"
+                ? {
+                    fileIdentifier: form.gpr.fileIdentifier.trim(),
+                    channelCount: form.gpr.channelCount,
+                    channelLabels: buildLabelMap(form.gpr.channelLabels),
+                    interfaceCount: form.gpr.interfaceCount,
+                    interfaceLabels: buildLabelMap(form.gpr.interfaceLabels),
+                  }
+                : null,
           });
 
           setUploads((current) => [createdUpload, ...current]);
-          setForm((current) => ({ ...current, notes: "" }));
+          setForm((current) => ({
+            ...current,
+            notes: "",
+            gpr: initialFormState.gpr,
+          }));
           setSelectedFile(null);
           setErrorMessage(null);
           setSuccessMessage(`Recorded upload ${createdUpload.filename}.`);
@@ -225,8 +291,8 @@ export default function UploadsClient({
             <h2>Record a source file against a project.</h2>
           </div>
           <p className="section-copy">
-            This first foundation stores upload metadata and lines it up with the
-            template-driven mapping flow that will come next.
+            Store source file bytes locally, tie them to a project, and prepare them for
+            real preview, mapping, and normalization work.
           </p>
         </div>
 
@@ -289,6 +355,160 @@ export default function UploadsClient({
                 />
               </label>
 
+              {form.dataType === "gpr" ? (
+                <>
+                  <label>
+                    <span>File identifier</span>
+                    <input
+                      value={form.gpr.fileIdentifier}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          gpr: {
+                            ...current.gpr,
+                            fileIdentifier: event.target.value,
+                          },
+                        }))
+                      }
+                      placeholder="Lane 1, Lane 2, Aux Lane, Ramp A"
+                    />
+                  </label>
+
+                  <label>
+                    <span>Channel count</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={64}
+                      value={form.gpr.channelCount}
+                      onChange={(event) =>
+                        setForm((current) => {
+                          const channelCount = clampCount(event.target.value, 64);
+                          return {
+                            ...current,
+                            gpr: {
+                              ...current.gpr,
+                              channelCount,
+                              channelLabels: resizeLabels(
+                                current.gpr.channelLabels,
+                                channelCount,
+                              ),
+                            },
+                          };
+                        })
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    <span>Interface count</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={24}
+                      value={form.gpr.interfaceCount}
+                      onChange={(event) =>
+                        setForm((current) => {
+                          const interfaceCount = clampCount(event.target.value, 24);
+                          return {
+                            ...current,
+                            gpr: {
+                              ...current.gpr,
+                              interfaceCount,
+                              interfaceLabels: resizeLabels(
+                                current.gpr.interfaceLabels,
+                                interfaceCount,
+                              ),
+                            },
+                          };
+                        })
+                      }
+                    />
+                  </label>
+
+                  <div className="field-full stack-sm">
+                    <div>
+                      <span>Optional channel labels</span>
+                      <p className="inline-note">
+                        Leave blank to default labels from channel number during
+                        normalization.
+                      </p>
+                    </div>
+                    <div className="form-grid">
+                      {form.gpr.channelLabels.map((label, index) => (
+                        <label key={`channel-label-${index + 1}`}>
+                          <span>Channel {index + 1}</span>
+                          <input
+                            value={label}
+                            onChange={(event) =>
+                              setForm((current) => {
+                                const channelLabels = [...current.gpr.channelLabels];
+                                channelLabels[index] = event.target.value;
+                                return {
+                                  ...current,
+                                  gpr: {
+                                    ...current.gpr,
+                                    channelLabels,
+                                  },
+                                };
+                              })
+                            }
+                            placeholder={`Channel ${index + 1}`}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="field-full stack-sm">
+                    <div>
+                      <span>Optional interface labels</span>
+                      <p className="inline-note">
+                        These labels drive the required interface depth fields in the
+                        mapping step.
+                      </p>
+                    </div>
+                    <div className="form-grid">
+                      {form.gpr.interfaceLabels.map((label, index) => (
+                        <label key={`interface-label-${index + 1}`}>
+                          <span>Interface {index + 1}</span>
+                          <input
+                            value={label}
+                            onChange={(event) =>
+                              setForm((current) => {
+                                const interfaceLabels = [...current.gpr.interfaceLabels];
+                                interfaceLabels[index] = event.target.value;
+                                return {
+                                  ...current,
+                                  gpr: {
+                                    ...current.gpr,
+                                    interfaceLabels,
+                                  },
+                                };
+                              })
+                            }
+                            placeholder={`Interface ${index + 1}`}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="field-full stack-sm">
+                    <p className="inline-note">
+                      GPR MVP intake supports single-channel files and multi-channel long
+                      format only. Multi-channel wide format is intentionally unsupported
+                      in this step.
+                    </p>
+                    <p className="inline-note">
+                      Latitude and longitude can be mapped later for map display. Missing
+                      GPS will warn but will not block import, and station or MP columns
+                      are intentionally out of scope for this enhancement.
+                    </p>
+                  </div>
+                </>
+              ) : null}
+
               <label className="field-full">
                 <span>Notes</span>
                 <textarea
@@ -307,8 +527,8 @@ export default function UploadsClient({
                 {isPending ? "Saving..." : "Record upload"}
               </button>
               <p className="inline-note">
-                Selected file bytes are not persisted yet. This step creates the upload
-                record and reserves the contract for real storage later.
+                Uploaded CSV and XLSX files are stored locally so preview and mapping can
+                read the real source content.
               </p>
             </div>
           </form>

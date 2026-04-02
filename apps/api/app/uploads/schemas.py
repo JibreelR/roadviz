@@ -6,6 +6,9 @@ from pathlib import Path
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import model_validator
+
+from app.gpr_imports.schemas import GprImportConfig
 
 class DataType(StrEnum):
     GPR = "gpr"
@@ -48,6 +51,7 @@ class UploadWrite(BaseModel):
     file_format: FileFormat
     status: UploadStatus = UploadStatus.RECEIVED
     notes: str | None = Field(default=None, max_length=2000)
+    gpr_import_config: GprImportConfig | None = None
 
     @field_validator("filename")
     @classmethod
@@ -64,6 +68,16 @@ class UploadWrite(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
+
+    @model_validator(mode="after")
+    def validate_gpr_import_config(self) -> "UploadWrite":
+        if self.data_type == DataType.GPR and self.gpr_import_config is None:
+            raise ValueError(
+                "GPR uploads require file identifier, channel count, and interface count."
+            )
+        if self.data_type != DataType.GPR and self.gpr_import_config is not None:
+            raise ValueError("Only GPR uploads can include GPR import metadata.")
+        return self
 
 
 class Upload(UploadWrite):
@@ -84,4 +98,5 @@ class UploadPreview(BaseModel):
     preview_status: PreviewStatus
     source_columns: list[SourceColumnPreview] = Field(default_factory=list)
     sample_rows: list[dict[str, str | None]] = Field(default_factory=list)
+    row_count: int | None = None
     row_count_estimate: int | None = None

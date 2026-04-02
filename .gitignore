@@ -9,6 +9,7 @@ __pycache__/
 
 apps/web/node_modules/
 apps/web/.next/
+apps/api/.storage/
 
 .pytest_cache/
 .mypy_cache/

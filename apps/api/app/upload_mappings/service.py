@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from app.gpr_imports.service import GprImportConfigurationError, GprImportService
 from app.mapping_definitions.service import MappingDefinitionService
+from app.parsing.service import UploadParseError, UploadParsingService
 from app.upload_mappings.schemas import (
     ColumnMappingAssignment,
     MappingValidationIssue,
@@ -11,146 +13,33 @@ from app.upload_mappings.schemas import (
     UploadMappingWrite,
     ValidationSeverity,
 )
-from app.uploads.schemas import (
-    DataType,
-    PreviewStatus,
-    SourceColumnPreview,
-    Upload,
-    UploadPreview,
-)
-
-
-_PREVIEW_SEEDS: dict[DataType, dict[str, object]] = {
-    DataType.GPR: {
-        "sample_rows": [
-            {
-                "segment": "GPR-1001",
-                "offset_ft": "0",
-                "epsilon_r": "6.8",
-                "surface_temperature_f": "74.0",
-                "travel_lane": "Lane 1",
-            },
-            {
-                "segment": "GPR-1001",
-                "offset_ft": "25",
-                "epsilon_r": "7.0",
-                "surface_temperature_f": "74.5",
-                "travel_lane": "Lane 1",
-            },
-        ],
-        "row_count_estimate": 248,
-    },
-    DataType.CORE: {
-        "sample_rows": [
-            {
-                "sample_id": "C-12",
-                "sta": "145+50",
-                "lane_name": "Outside",
-                "thickness_in": "9.5",
-                "material": "HMA over aggregate base",
-            },
-            {
-                "sample_id": "C-13",
-                "sta": "149+00",
-                "lane_name": "Outside",
-                "thickness_in": "10.25",
-                "material": "HMA over PCC",
-            },
-        ],
-        "row_count_estimate": 16,
-    },
-    DataType.FWD: {
-        "sample_rows": [
-            {
-                "drop_id": "FWD-201",
-                "sta": "210+25",
-                "load_lb": "9000",
-                "sensor_0_mils": "14.8",
-                "temp_f": "81",
-            },
-            {
-                "drop_id": "FWD-202",
-                "sta": "212+75",
-                "load_lb": "9000",
-                "sensor_0_mils": "15.1",
-                "temp_f": "82",
-            },
-        ],
-        "row_count_estimate": 74,
-    },
-    DataType.DCP: {
-        "sample_rows": [
-            {
-                "point_id": "DCP-07",
-                "sta": "305+20",
-                "blows": "5",
-                "penetration_mm": "42",
-                "material_note": "Dense base layer",
-            },
-            {
-                "point_id": "DCP-07",
-                "sta": "305+20",
-                "blows": "10",
-                "penetration_mm": "79",
-                "material_note": "Transition to subbase",
-            },
-        ],
-        "row_count_estimate": 33,
-    },
-}
-
-
-def _infer_column_type(values: list[str | None]) -> str:
-    populated_values = [value for value in values if value not in {None, ""}]
-    if not populated_values:
-        return "text"
-
-    for value in populated_values:
-        try:
-            float(value)
-        except (TypeError, ValueError):
-            return "text"
-
-    return "number"
+from app.uploads.repository import UploadRepository
+from app.uploads.schemas import DataType, PreviewStatus, Upload, UploadPreview
 
 
 class UploadMappingService:
     """Build upload preview contracts and validate saved or pending mappings."""
 
-    def __init__(self, definition_service: MappingDefinitionService) -> None:
+    def __init__(
+        self,
+        definition_service: MappingDefinitionService,
+        upload_repository: UploadRepository,
+        parsing_service: UploadParsingService,
+    ) -> None:
         self._definition_service = definition_service
+        self._upload_repository = upload_repository
+        self._parsing_service = parsing_service
+        self._gpr_import_service = GprImportService()
 
     def build_preview(self, upload: Upload) -> UploadPreview:
-        seed = _PREVIEW_SEEDS[upload.data_type]
-        raw_sample_rows = seed["sample_rows"]
-        assert isinstance(raw_sample_rows, list)
-        sample_rows = [
-            {key: value for key, value in row.items()}
-            for row in raw_sample_rows
-            if isinstance(row, dict)
-        ]
-        column_names = list(sample_rows[0].keys()) if sample_rows else []
-
-        source_columns = []
-        for column_name in column_names:
-            sample_values = [row.get(column_name) for row in sample_rows]
-            source_columns.append(
-                SourceColumnPreview(
-                    name=column_name,
-                    sample_values=sample_values[:3],
-                    inferred_type=_infer_column_type(sample_values),
-                )
-            )
-
-        row_count_estimate = seed["row_count_estimate"]
-        assert row_count_estimate is None or isinstance(row_count_estimate, int)
-
+        parsed_upload = self._parse_upload(upload)
         return UploadPreview(
             upload=upload.model_copy(deep=True),
-            preview_status=PreviewStatus.STUBBED,
-            source_columns=source_columns,
-            sample_rows=sample_rows,
-            row_count_estimate=row_count_estimate,
+            preview_status=PreviewStatus.PARSED,
+            source_columns=parsed_upload.source_columns,
+            sample_rows=parsed_upload.sample_rows,
+            row_count=parsed_upload.row_count,
+            row_count_estimate=parsed_upload.row_count,
         )
 
     def build_mapping_state(
@@ -191,18 +80,40 @@ class UploadMappingService:
     def validate_mapping(
         self,
         upload: Upload,
-        mapping_in: UploadMappingWrite,
+        mapping_in: UploadMappingWrite | UploadMappingState,
     ) -> MappingValidationResult:
-        definition = self._definition_service.get_definition(upload.data_type)
-        preview = self.build_preview(upload)
         issues: list[MappingValidationIssue] = []
-        field_lookup = {field.key: field for field in definition.canonical_fields}
-        assigned_by_canonical: dict[str, list[str]] = defaultdict(list)
         assignments_by_source = {
             assignment.source_column: assignment.canonical_field
             for assignment in mapping_in.assignments
         }
-        preview_columns = {column.name for column in preview.source_columns}
+        preview_columns: set[str] = set()
+        assigned_by_canonical: dict[str, list[str]] = defaultdict(list)
+
+        try:
+            definition = self._definition_service.get_definition_for_upload(upload)
+        except GprImportConfigurationError as exc:
+            return MappingValidationResult(
+                upload_id=upload.id,
+                data_type=upload.data_type,
+                is_valid=False,
+                issues=[
+                    MappingValidationIssue(
+                        code="missing_gpr_import_config",
+                        severity=ValidationSeverity.ERROR,
+                        message=str(exc),
+                    )
+                ],
+                mapped_field_count=sum(
+                    1
+                    for assignment in mapping_in.assignments
+                    if assignment.canonical_field is not None
+                ),
+                required_field_count=0,
+                satisfied_required_field_count=0,
+            )
+
+        field_lookup = {field.key: field for field in definition.canonical_fields}
 
         if upload.file_format not in definition.supported_file_formats:
             issues.append(
@@ -215,9 +126,22 @@ class UploadMappingService:
                     ),
                 )
             )
+        else:
+            try:
+                preview_columns = {
+                    column.name for column in self.build_preview(upload).source_columns
+                }
+            except UploadParseError as exc:
+                issues.append(
+                    MappingValidationIssue(
+                        code="file_parse_error",
+                        severity=ValidationSeverity.ERROR,
+                        message=str(exc),
+                    )
+                )
 
         for assignment in mapping_in.assignments:
-            if assignment.source_column not in preview_columns:
+            if preview_columns and assignment.source_column not in preview_columns:
                 issues.append(
                     MappingValidationIssue(
                         code="unknown_source_column",
@@ -253,6 +177,18 @@ class UploadMappingService:
         for field in definition.canonical_fields:
             assigned_sources = assigned_by_canonical.get(field.key, [])
             if field.required and not assigned_sources:
+                if upload.data_type == DataType.GPR and field.key == "channel_number":
+                    issues.append(
+                        MappingValidationIssue(
+                            code="missing_channel_number_mapping",
+                            severity=ValidationSeverity.ERROR,
+                            message=(
+                                "Multi-channel GPR uploads must map a Channel Number column."
+                            ),
+                            canonical_field=field.key,
+                        )
+                    )
+                    continue
                 issues.append(
                     MappingValidationIssue(
                         code="missing_required_field",
@@ -271,16 +207,25 @@ class UploadMappingService:
                     )
                 )
 
-        for column in preview.source_columns:
-            if assignments_by_source.get(column.name) is None:
-                issues.append(
-                    MappingValidationIssue(
-                        code="unmapped_source_column",
-                        severity=ValidationSeverity.WARNING,
-                        message=f"Source column '{column.name}' is not mapped yet.",
-                        source_column=column.name,
+        if upload.data_type == DataType.GPR:
+            self._append_gpr_scan_distance_validation(issues, assigned_by_canonical)
+            self._append_gpr_warnings(
+                upload,
+                assigned_by_canonical,
+                issues,
+            )
+
+        if preview_columns:
+            for column_name in sorted(preview_columns):
+                if assignments_by_source.get(column_name) is None:
+                    issues.append(
+                        MappingValidationIssue(
+                            code="unmapped_source_column",
+                            severity=ValidationSeverity.WARNING,
+                            message=f"Source column '{column_name}' is not mapped yet.",
+                            source_column=column_name,
+                        )
                     )
-                )
 
         required_field_count = sum(field.required for field in definition.canonical_fields)
         satisfied_required_field_count = sum(
@@ -299,4 +244,57 @@ class UploadMappingService:
             ),
             required_field_count=required_field_count,
             satisfied_required_field_count=satisfied_required_field_count,
+        )
+
+    def _parse_upload(self, upload: Upload):
+        return self._parsing_service.parse_upload(
+            upload,
+            self._upload_repository.get_storage_path(upload.id),
+        )
+
+    def _append_gpr_warnings(
+        self,
+        upload: Upload,
+        assigned_by_canonical: dict[str, list[str]],
+        issues: list[MappingValidationIssue],
+    ) -> None:
+        try:
+            self._gpr_import_service.get_config(upload)
+        except GprImportConfigurationError:
+            return
+
+        has_latitude = bool(assigned_by_canonical.get("latitude"))
+        has_longitude = bool(assigned_by_canonical.get("longitude"))
+        if has_latitude and has_longitude:
+            return
+
+        issues.append(
+            MappingValidationIssue(
+                code="gps_mapping_recommended",
+                severity=ValidationSeverity.WARNING,
+                message=(
+                    "Latitude and longitude are not both mapped. Normalization can continue, "
+                    "but current map display will be limited until GPS coordinates are available."
+                ),
+            )
+        )
+
+    def _append_gpr_scan_distance_validation(
+        self,
+        issues: list[MappingValidationIssue],
+        assigned_by_canonical: dict[str, list[str]],
+    ) -> None:
+        has_scan = bool(assigned_by_canonical.get("scan"))
+        has_distance = bool(assigned_by_canonical.get("distance"))
+        if has_scan or has_distance:
+            return
+
+        issues.append(
+            MappingValidationIssue(
+                code="missing_scan_or_distance_mapping",
+                severity=ValidationSeverity.ERROR,
+                message=(
+                    "GPR uploads must map at least one location field: Scan or Distance."
+                ),
+            )
         )

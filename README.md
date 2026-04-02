@@ -88,12 +88,15 @@ infra/
 The repository now includes the first MVP product object:
 
 - Project CRUD foundation in the FastAPI backend with an in-memory repository
-- Upload intake records tied to projects
+- Upload intake records tied to projects with local source-file storage
 - Schema templates for supported pavement data types
-- Upload preview, source-to-canonical mapping, and validation foundation
+- Real CSV/XLSX upload preview, source-to-canonical mapping, and validation foundation
+- Mapping-driven normalization foundation for GPR, core, FWD, and DCP uploads
 - A Next.js Projects and Uploads workflow for creating records and mapping source columns
 
-It does not yet include upload parsing, validation, normalization, analysis workflows, authentication, or reporting pipelines.
+Uploaded source files are stored locally under `apps/api/.storage/uploads` during local development.
+
+It does not yet include engineering analysis workflows, authentication, database-backed upload persistence, or reporting pipelines.
 
 ## Mapping Foundation Verification
 
@@ -104,10 +107,12 @@ docker compose --env-file .env -f infra/compose/docker-compose.yml exec api pyth
 docker compose --env-file .env -f infra/compose/docker-compose.yml --profile verification run --rm web-verify
 ```
 
+Frontend verification must use the isolated `web-verify` container. Do not run `docker compose exec web npm run build`, because it shares the live dev container `.next` directory and can leave `next dev` in a broken state with runtime module errors.
+
 Then in the browser:
 
 1. Open `http://localhost:3000/projects`
 2. Create or open a project
 3. Go to the Uploads page and record a CSV or XLSX upload
-4. Use the new `Map columns` action for that upload
-5. Confirm the page shows upload metadata, stub preview columns, canonical RoadViz fields, saveable mappings, and validation feedback
+4. Use the `Map columns` action for that upload
+5. Confirm the page shows real parsed source columns, sample rows, canonical RoadViz fields, saveable mappings, and validation feedback

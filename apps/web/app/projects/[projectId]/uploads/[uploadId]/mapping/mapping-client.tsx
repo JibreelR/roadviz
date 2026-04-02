@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import {
-  getMappingDefinitions,
   getUploadMapping,
+  getUploadMappingDefinition,
   getUploadPreview,
   saveUploadMapping,
   validateUploadMapping,
@@ -24,6 +24,17 @@ function formatTimestamp(timestamp: string): string {
 
 function formatFieldBadge(value: string): string {
   return value.replaceAll("_", " ");
+}
+
+function buildConfiguredLabels(
+  labels: Record<string, string>,
+  count: number,
+  prefix: string,
+): Array<{ number: number; label: string }> {
+  return Array.from({ length: count }, (_, index) => ({
+    number: index + 1,
+    label: labels[String(index + 1)] ?? `${prefix} ${index + 1}`,
+  }));
 }
 
 export default function MappingClient({
@@ -53,7 +64,7 @@ export default function MappingClient({
 
         const loadedPreview = await getUploadPreview(uploadId, controller.signal);
         const [loadedDefinition, loadedMapping] = await Promise.all([
-          getMappingDefinitions(loadedPreview.upload.data_type, controller.signal),
+          getUploadMappingDefinition(uploadId, controller.signal),
           getUploadMapping(uploadId, controller.signal),
         ]);
 
@@ -92,6 +103,30 @@ export default function MappingClient({
     }
     return nextLookup;
   }, [mappingState]);
+
+  const gprConfig = preview?.upload.gpr_import_config ?? null;
+  const configuredChannelLabels = useMemo(
+    () =>
+      gprConfig
+        ? buildConfiguredLabels(
+            gprConfig.channel_labels,
+            gprConfig.channel_count,
+            "Channel",
+          )
+        : [],
+    [gprConfig],
+  );
+  const configuredInterfaceLabels = useMemo(
+    () =>
+      gprConfig
+        ? buildConfiguredLabels(
+            gprConfig.interface_labels,
+            gprConfig.interface_count,
+            "Interface",
+          )
+        : [],
+    [gprConfig],
+  );
 
   function handleAssignmentChange(sourceColumn: string, canonicalField: string) {
     setMappingState((current) => {
@@ -152,8 +187,8 @@ export default function MappingClient({
       setValidation(result);
       setSuccessMessage(
         result.is_valid
-          ? "Mapping passed validation and is ready for later parsing work."
-          : "Validation found issues that should be resolved before parsing.",
+          ? "Mapping passed validation and is ready for normalization."
+          : "Validation found issues that should be resolved before normalization.",
       );
     } catch (error) {
       setErrorMessage(
@@ -218,7 +253,9 @@ export default function MappingClient({
           </article>
           <article className="summary-card">
             <div className="table-secondary">Estimated rows</div>
-            <div className="table-primary">{preview.row_count_estimate ?? "Unknown"}</div>
+            <div className="table-primary">
+              {preview.row_count ?? preview.row_count_estimate ?? "Unknown"}
+            </div>
           </article>
         </div>
 
@@ -230,6 +267,65 @@ export default function MappingClient({
         {successMessage ? <p className="message success">{successMessage}</p> : null}
       </section>
 
+      {preview.upload.data_type === "gpr" && gprConfig ? (
+        <section className="panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">GPR Import Setup</p>
+              <h2>Upload-level GPR metadata</h2>
+            </div>
+            <p className="section-copy">
+              This upload configuration controls the required interface and channel
+              mapping fields below.
+            </p>
+          </div>
+
+          <div className="summary-grid">
+            <article className="summary-card">
+              <div className="table-secondary">File identifier</div>
+              <div className="table-primary">{gprConfig.file_identifier}</div>
+            </article>
+            <article className="summary-card">
+              <div className="table-secondary">Channel behavior</div>
+              <div className="table-primary">
+                {gprConfig.channel_count === 1
+                  ? "Single-channel"
+                  : "Multi-channel long format"}
+              </div>
+            </article>
+            <article className="summary-card">
+              <div className="table-secondary">Channel count</div>
+              <div className="table-primary">{gprConfig.channel_count}</div>
+            </article>
+            <article className="summary-card">
+              <div className="table-secondary">Interface count</div>
+              <div className="table-primary">{gprConfig.interface_count}</div>
+            </article>
+          </div>
+
+          <div className="stack-sm">
+            <p className="inline-note">
+              Latitude and longitude are optional for import, but leaving them unmapped
+              will limit current map display for this upload.
+            </p>
+            <div className="chip-row">
+              {configuredChannelLabels.map((channel) => (
+                <code key={`configured-channel-${channel.number}`}>
+                  Channel {channel.number}: {channel.label}
+                </code>
+              ))}
+            </div>
+            <div className="chip-row">
+              {configuredInterfaceLabels.map((item) => (
+                <code key={`configured-interface-${item.number}`}>
+                  Interface {item.number}: {item.label}
+                </code>
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <section className="panel">
         <div className="section-heading">
           <div>
@@ -237,8 +333,9 @@ export default function MappingClient({
             <h2>RoadViz fields for {definition.data_type.toUpperCase()}</h2>
           </div>
           <p className="section-copy">
-            Required fields must be mapped before later parsing and normalization can
-            proceed.
+            {definition.data_type === "gpr"
+              ? "For GPR, map Scan, Distance, or both when they exist. At least one of those location fields is required before normalization can proceed."
+              : "Required fields must be mapped before normalization can proceed."}
           </p>
         </div>
 
@@ -277,7 +374,9 @@ export default function MappingClient({
             <h2>Assign each source column</h2>
           </div>
           <p className="section-copy">
-            Start with the required fields, then map helpful context columns as needed.
+            {definition.data_type === "gpr"
+              ? "For GPR uploads, Scan and Distance are separate canonical fields. Map each source column independently when both exist."
+              : "Start with the required fields, then map helpful context columns as needed."}
           </p>
         </div>
 
@@ -363,8 +462,9 @@ export default function MappingClient({
             <h2>Current mapping check</h2>
           </div>
           <p className="section-copy">
-            Validation checks required fields, duplicate canonical assignments, and file
-            format consistency.
+            {definition.data_type === "gpr"
+              ? "Validation checks required fields, duplicate canonical assignments, file format consistency, whether the mapped columns exist in the parsed file, and whether at least one of Scan or Distance is mapped."
+              : "Validation checks required fields, duplicate canonical assignments, file format consistency, and whether the mapped columns exist in the parsed file."}
           </p>
         </div>
 
@@ -390,7 +490,7 @@ export default function MappingClient({
 
             {validation.issues.length === 0 ? (
               <p className="message success">
-                No issues found. This upload is ready for later parsing work.
+                No issues found. This upload is ready for normalization.
               </p>
             ) : (
               <div className="validation-list">
@@ -431,8 +531,7 @@ export default function MappingClient({
             <h2>Preview-ready structure</h2>
           </div>
           <p className="section-copy">
-            These rows are stubbed today, but the table shape is ready for real file
-            parsing later.
+            These rows are parsed directly from the uploaded source file.
           </p>
         </div>
 

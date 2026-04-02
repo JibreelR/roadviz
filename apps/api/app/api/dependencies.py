@@ -4,13 +4,16 @@ from uuid import UUID
 
 from fastapi import HTTPException, Request, status
 
+from app.normalization.repository import NormalizedUploadRepository
 from app.mapping_definitions.service import MappingDefinitionService
+from app.parsing.service import UploadParsingService
 from app.projects.repository import ProjectRepository
 from app.projects.schemas import Project
 from app.schema_templates.repository import SchemaTemplateRepository
 from app.upload_mappings.repository import UploadMappingRepository
 from app.uploads.repository import UploadRepository
 from app.uploads.schemas import Upload
+from app.uploads.storage import LocalUploadStorage
 
 
 def get_project_repository(request: Request) -> ProjectRepository:
@@ -29,8 +32,20 @@ def get_mapping_definition_service(request: Request) -> MappingDefinitionService
     return request.app.state.mapping_definition_service
 
 
+def get_upload_parsing_service(request: Request) -> UploadParsingService:
+    return request.app.state.upload_parsing_service
+
+
 def get_upload_mapping_repository(request: Request) -> UploadMappingRepository:
     return request.app.state.upload_mapping_repository
+
+
+def get_normalized_upload_repository(request: Request) -> NormalizedUploadRepository:
+    return request.app.state.normalized_upload_repository
+
+
+def get_upload_file_storage(request: Request) -> LocalUploadStorage:
+    return request.app.state.upload_file_storage
 
 
 def read_project_or_404(project_id: UUID, repository: ProjectRepository) -> Project:

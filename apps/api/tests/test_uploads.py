@@ -1,14 +1,21 @@
 import asyncio
+import json
 import unittest
 from io import BytesIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile
+from openpyxl import Workbook
 
 from app.api.routes.upload_mapping import (
     get_mapping_definitions,
+    get_normalized_upload,
+    get_upload_mapping_definition,
     get_upload_mapping,
     get_upload_preview,
+    normalize_upload,
     save_upload_mapping,
     validate_upload_mapping,
 )
@@ -16,6 +23,8 @@ from app.api.routes.schema_templates import create_schema_template, list_schema_
 from app.api.routes.uploads import create_upload, list_project_uploads
 from app.main import app
 from app.mapping_definitions.service import MappingDefinitionService
+from app.normalization.repository import InMemoryNormalizedUploadRepository
+from app.parsing.service import UploadParsingService
 from app.projects.repository import InMemoryProjectRepository
 from app.projects.schemas import ProjectStatus, ProjectWrite
 from app.schema_templates.repository import InMemorySchemaTemplateRepository
@@ -24,15 +33,20 @@ from app.upload_mappings.repository import InMemoryUploadMappingRepository
 from app.upload_mappings.schemas import UploadMappingWrite
 from app.uploads.repository import InMemoryUploadRepository
 from app.uploads.schemas import DataType, FileFormat
+from app.uploads.storage import LocalUploadStorage
 
 
 class UploadFoundationTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.temp_dir = TemporaryDirectory()
         self.project_repository = InMemoryProjectRepository()
         self.upload_repository = InMemoryUploadRepository()
         self.schema_repository = InMemorySchemaTemplateRepository()
         self.mapping_definition_service = MappingDefinitionService()
+        self.parsing_service = UploadParsingService()
         self.upload_mapping_repository = InMemoryUploadMappingRepository()
+        self.normalized_upload_repository = InMemoryNormalizedUploadRepository()
+        self.upload_file_storage = LocalUploadStorage(Path(self.temp_dir.name))
         self.project = self.project_repository.create(
             ProjectWrite(
                 project_code="NJDOT-002",
@@ -52,21 +66,93 @@ class UploadFoundationTests(unittest.TestCase):
             )
         )
 
-    def test_create_and_list_project_upload(self) -> None:
-        upload_file = UploadFile(
-            filename="gpr-profile.csv",
-            file=BytesIO(b"segment_id,distance_ft\nA-1,25\n"),
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def _make_upload_file(self, filename: str, content: bytes) -> UploadFile:
+        return UploadFile(filename=filename, file=BytesIO(content))
+
+    def _make_xlsx_file(self, headers: list[str], rows: list[list[object]]) -> bytes:
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.append(headers)
+        for row in rows:
+            worksheet.append(row)
+
+        stream = BytesIO()
+        workbook.save(stream)
+        workbook.close()
+        return stream.getvalue()
+
+    def _default_gpr_config(
+        self,
+        *,
+        file_identifier: str = "Lane 1",
+        channel_count: int = 1,
+        channel_labels: dict[int, str] | None = None,
+        interface_count: int = 1,
+        interface_labels: dict[int, str] | None = None,
+    ) -> dict[str, object]:
+        return {
+            "file_identifier": file_identifier,
+            "channel_count": channel_count,
+            "channel_labels": channel_labels or {},
+            "interface_count": interface_count,
+            "interface_labels": interface_labels or {},
+        }
+
+    def _create_upload(
+        self,
+        *,
+        data_type: DataType,
+        filename: str,
+        content: bytes,
+        notes: str,
+        gpr_config: dict[str, object] | None = None,
+    ):
+        upload_file = self._make_upload_file(filename, content)
+        return asyncio.run(
+            create_upload(
+                project_id=self.project.id,
+                data_type=data_type,
+                notes=notes,
+                file=upload_file,
+                gpr_file_identifier=(
+                    str(gpr_config["file_identifier"]) if gpr_config is not None else None
+                ),
+                gpr_channel_count=(
+                    int(gpr_config["channel_count"]) if gpr_config is not None else None
+                ),
+                gpr_channel_labels_json=(
+                    json.dumps(gpr_config.get("channel_labels", {}))
+                    if gpr_config is not None
+                    else None
+                ),
+                gpr_interface_count=(
+                    int(gpr_config["interface_count"]) if gpr_config is not None else None
+                ),
+                gpr_interface_labels_json=(
+                    json.dumps(gpr_config.get("interface_labels", {}))
+                    if gpr_config is not None
+                    else None
+                ),
+                project_repository=self.project_repository,
+                upload_repository=self.upload_repository,
+                upload_file_storage=self.upload_file_storage,
+            )
         )
 
-        created_upload = asyncio.run(
-            create_upload(
-                self.project.id,
-                DataType.GPR,
-                "Initial field upload.",
-                upload_file,
-                self.project_repository,
-                self.upload_repository,
-            )
+    def test_create_and_list_project_upload(self) -> None:
+        created_upload = self._create_upload(
+            data_type=DataType.GPR,
+            filename="gpr-profile.csv",
+            content=b"distance,interface_1\n25,3.4\n",
+            notes="Initial field upload.",
+            gpr_config=self._default_gpr_config(
+                file_identifier="Lane 1",
+                channel_count=1,
+                interface_count=1,
+            ),
         )
         uploads = list_project_uploads(
             self.project.id,
@@ -79,27 +165,28 @@ class UploadFoundationTests(unittest.TestCase):
         self.assertEqual(uploads[0].filename, "gpr-profile.csv")
         self.assertEqual(uploads[0].file_format, FileFormat.CSV)
         self.assertEqual(uploads[0].data_type, DataType.GPR)
+        self.assertEqual(uploads[0].gpr_import_config.file_identifier, "Lane 1")
+        self.assertIsNotNone(self.upload_repository.get_storage_path(created_upload.id))
 
     def test_upload_preview_and_mapping_definition_foundation(self) -> None:
-        upload_file = UploadFile(
+        created_upload = self._create_upload(
+            data_type=DataType.FWD,
             filename="fwd-drop-data.xlsx",
-            file=BytesIO(b"placeholder"),
-        )
-        created_upload = asyncio.run(
-            create_upload(
-                self.project.id,
-                DataType.FWD,
-                "FWD field drop set.",
-                upload_file,
-                self.project_repository,
-                self.upload_repository,
-            )
+            content=self._make_xlsx_file(
+                ["drop_id", "sta", "load_lb", "sensor_0_mils", "temp_f"],
+                [
+                    ["FWD-201", "210+25", 9000, 14.8, 81],
+                    ["FWD-202", "212+75", 9000, 15.1, 82],
+                ],
+            ),
+            notes="FWD field drop set.",
         )
 
         preview = get_upload_preview(
             created_upload.id,
             self.upload_repository,
             self.mapping_definition_service,
+            self.parsing_service,
         )
         mapping_definition = get_mapping_definitions(
             DataType.FWD,
@@ -110,29 +197,29 @@ class UploadFoundationTests(unittest.TestCase):
             self.upload_repository,
             self.upload_mapping_repository,
             self.mapping_definition_service,
+            self.parsing_service,
         )
 
         self.assertEqual(preview.upload.id, created_upload.id)
-        self.assertGreaterEqual(len(preview.source_columns), 4)
+        self.assertEqual(preview.preview_status, "parsed")
+        self.assertEqual(preview.row_count, 2)
+        self.assertEqual(preview.sample_rows[0]["drop_id"], "FWD-201")
+        self.assertGreaterEqual(len(preview.source_columns), 5)
         self.assertEqual(mapping_definition.data_type, DataType.FWD)
         self.assertTrue(any(field.required for field in mapping_definition.canonical_fields))
         self.assertFalse(mapping_state.is_saved)
         self.assertEqual(len(mapping_state.assignments), len(preview.source_columns))
 
     def test_save_and_validate_upload_mapping(self) -> None:
-        upload_file = UploadFile(
+        created_upload = self._create_upload(
+            data_type=DataType.CORE,
             filename="core-data.csv",
-            file=BytesIO(b"placeholder"),
-        )
-        created_upload = asyncio.run(
-            create_upload(
-                self.project.id,
-                DataType.CORE,
-                "Core sample import.",
-                upload_file,
-                self.project_repository,
-                self.upload_repository,
-            )
+            content=(
+                b"sample_id,sta,lane_name,thickness_in,material\n"
+                b"C-12,145+50,Outside,9.5,HMA over aggregate base\n"
+                b"C-13,149+00,Outside,10.25,HMA over PCC\n"
+            ),
+            notes="Core sample import.",
         )
 
         saved_mapping = save_upload_mapping(
@@ -151,12 +238,14 @@ class UploadFoundationTests(unittest.TestCase):
             self.upload_repository,
             self.upload_mapping_repository,
             self.mapping_definition_service,
+            self.parsing_service,
         )
         validation = validate_upload_mapping(
             created_upload.id,
             UploadMappingWrite(assignments=saved_mapping.assignments),
             self.upload_repository,
             self.mapping_definition_service,
+            self.parsing_service,
         )
 
         self.assertTrue(saved_mapping.is_saved)
@@ -166,19 +255,14 @@ class UploadFoundationTests(unittest.TestCase):
         self.assertEqual(validation.satisfied_required_field_count, 3)
 
     def test_validation_flags_duplicate_assignments_and_unknown_format(self) -> None:
-        upload_file = UploadFile(
+        created_upload = self._create_upload(
+            data_type=DataType.DCP,
             filename="dcp-notes.txt",
-            file=BytesIO(b"placeholder"),
-        )
-        created_upload = asyncio.run(
-            create_upload(
-                self.project.id,
-                DataType.DCP,
-                "Unexpected vendor export.",
-                upload_file,
-                self.project_repository,
-                self.upload_repository,
-            )
+            content=(
+                b"point_id,sta,blows,penetration_mm,material_note\n"
+                b"DCP-07,305+20,5,42,Dense base layer\n"
+            ),
+            notes="Unexpected vendor export.",
         )
 
         validation = validate_upload_mapping(
@@ -194,12 +278,274 @@ class UploadFoundationTests(unittest.TestCase):
             ),
             self.upload_repository,
             self.mapping_definition_service,
+            self.parsing_service,
         )
 
         self.assertFalse(validation.is_valid)
         issue_codes = {issue.code for issue in validation.issues}
         self.assertIn("unsupported_file_format", issue_codes)
         self.assertIn("duplicate_canonical_assignment", issue_codes)
+
+    def test_gpr_normalization_returns_upload_metadata_and_interface_depths(self) -> None:
+        created_upload = self._create_upload(
+            data_type=DataType.GPR,
+            filename="gpr-profile.csv",
+            content=(
+                b"scan_no,distance_ft,channel,depth_surface,depth_base,latitude,longitude\n"
+                b"10,0,2,1.5,5.75,40.1000,-74.2000\n"
+                b"11,25,2,1.6,5.90,40.1005,-74.2005\n"
+            ),
+            notes="GPR run for normalization.",
+            gpr_config=self._default_gpr_config(
+                file_identifier="Lane 2",
+                channel_count=2,
+                channel_labels={2: "Right Wheelpath"},
+                interface_count=2,
+                interface_labels={
+                    1: "Asphalt Surface Course",
+                    2: "Asphalt Base Course",
+                },
+            ),
+        )
+        save_upload_mapping(
+            created_upload.id,
+            UploadMappingWrite(
+                assignments=[
+                    {"source_column": "scan_no", "canonical_field": "scan"},
+                    {"source_column": "distance_ft", "canonical_field": "distance"},
+                    {"source_column": "channel", "canonical_field": "channel_number"},
+                    {"source_column": "depth_surface", "canonical_field": "interface_depth_1"},
+                    {"source_column": "depth_base", "canonical_field": "interface_depth_2"},
+                    {"source_column": "latitude", "canonical_field": "latitude"},
+                    {"source_column": "longitude", "canonical_field": "longitude"},
+                ]
+            ),
+            self.upload_repository,
+            self.upload_mapping_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+        )
+
+        summary = normalize_upload(
+            created_upload.id,
+            self.upload_repository,
+            self.upload_mapping_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+            self.normalized_upload_repository,
+        )
+        result = get_normalized_upload(
+            created_upload.id,
+            self.upload_repository,
+            self.normalized_upload_repository,
+        )
+
+        self.assertEqual(summary.normalized_row_count, 2)
+        self.assertEqual(result.rows[0].data_type, DataType.GPR)
+        self.assertEqual(result.rows[0].normalized_values.file_identifier, "Lane 2")
+        self.assertEqual(result.rows[0].normalized_values.scan, 10.0)
+        self.assertEqual(result.rows[0].normalized_values.distance, 0.0)
+        self.assertEqual(result.rows[0].normalized_values.channel_number, 2)
+        self.assertEqual(
+            result.rows[0].normalized_values.channel_label,
+            "Right Wheelpath",
+        )
+        self.assertEqual(result.rows[0].normalized_values.latitude, 40.1)
+        self.assertEqual(result.rows[0].normalized_values.longitude, -74.2)
+        self.assertEqual(
+            result.rows[0].normalized_values.interface_depths[0].interface_label,
+            "Asphalt Surface Course",
+        )
+        self.assertEqual(result.rows[0].normalized_values.interface_depths[0].depth, 1.5)
+        self.assertEqual(result.rows[0].mapped_values["scan"], "10")
+        self.assertEqual(result.rows[0].mapped_values["distance"], "0")
+
+    def test_gpr_dynamic_definition_requires_channel_mapping_and_warns_for_missing_gps(self) -> None:
+        created_upload = self._create_upload(
+            data_type=DataType.GPR,
+            filename="gpr-multichannel.csv",
+            content=(
+                b"distance_ft,channel_id,depth_1,depth_2\n"
+                b"0,1,1.2,5.3\n"
+                b"25,2,1.4,5.6\n"
+            ),
+            notes="Multi-channel GPR import.",
+            gpr_config=self._default_gpr_config(
+                file_identifier="Aux Lane",
+                channel_count=2,
+                interface_count=2,
+                interface_labels={
+                    1: "Asphalt Surface Course",
+                    2: "Asphalt Base Course",
+                },
+            ),
+        )
+
+        definition = get_upload_mapping_definition(
+            created_upload.id,
+            self.upload_repository,
+            self.mapping_definition_service,
+        )
+        validation = validate_upload_mapping(
+            created_upload.id,
+            UploadMappingWrite(
+                assignments=[
+                    {"source_column": "depth_1", "canonical_field": "interface_depth_1"},
+                    {"source_column": "depth_2", "canonical_field": "interface_depth_2"},
+                ]
+            ),
+            self.upload_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+        )
+
+        required_fields = {
+            field.key for field in definition.canonical_fields if field.required
+        }
+        issue_codes = {issue.code for issue in validation.issues}
+        self.assertIn("channel_number", required_fields)
+        self.assertIn("interface_depth_1", required_fields)
+        self.assertIn("interface_depth_2", required_fields)
+        self.assertFalse(validation.is_valid)
+        self.assertIn("missing_channel_number_mapping", issue_codes)
+        self.assertIn("missing_scan_or_distance_mapping", issue_codes)
+        self.assertIn("gps_mapping_recommended", issue_codes)
+
+    def test_single_channel_gpr_normalization_defaults_channel_number_and_label(self) -> None:
+        created_upload = self._create_upload(
+            data_type=DataType.GPR,
+            filename="gpr-single-channel.csv",
+            content=(
+                b"distance,depth_surface\n"
+                b"0,1.8\n"
+                b"25,1.9\n"
+            ),
+            notes="Single-channel GPR import.",
+            gpr_config=self._default_gpr_config(
+                file_identifier="Ramp A",
+                channel_count=1,
+                interface_count=1,
+                interface_labels={1: "Asphalt Total Thickness"},
+            ),
+        )
+        save_upload_mapping(
+            created_upload.id,
+            UploadMappingWrite(
+                assignments=[
+                    {"source_column": "distance", "canonical_field": "distance"},
+                    {
+                        "source_column": "depth_surface",
+                        "canonical_field": "interface_depth_1",
+                    },
+                ]
+            ),
+            self.upload_repository,
+            self.upload_mapping_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+        )
+
+        summary = normalize_upload(
+            created_upload.id,
+            self.upload_repository,
+            self.upload_mapping_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+            self.normalized_upload_repository,
+        )
+
+        self.assertEqual(summary.normalized_row_count, 2)
+        self.assertIsNone(summary.preview_rows[0].normalized_values.scan)
+        self.assertEqual(summary.preview_rows[0].normalized_values.distance, 0.0)
+        self.assertEqual(summary.preview_rows[0].normalized_values.channel_number, 1)
+        self.assertEqual(summary.preview_rows[0].normalized_values.channel_label, "Channel 1")
+        self.assertEqual(
+            summary.preview_rows[0].normalized_values.interface_depths[0].interface_label,
+            "Asphalt Total Thickness",
+        )
+
+    def test_gpr_validation_accepts_scan_without_distance(self) -> None:
+        created_upload = self._create_upload(
+            data_type=DataType.GPR,
+            filename="gpr-scan-only.csv",
+            content=(
+                b"scan_no,depth_surface\n"
+                b"100,1.8\n"
+                b"101,1.9\n"
+            ),
+            notes="Scan-only GPR import.",
+            gpr_config=self._default_gpr_config(
+                file_identifier="Lane 1",
+                channel_count=1,
+                interface_count=1,
+            ),
+        )
+
+        validation = validate_upload_mapping(
+            created_upload.id,
+            UploadMappingWrite(
+                assignments=[
+                    {"source_column": "scan_no", "canonical_field": "scan"},
+                    {
+                        "source_column": "depth_surface",
+                        "canonical_field": "interface_depth_1",
+                    },
+                ]
+            ),
+            self.upload_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+        )
+
+        issue_codes = {issue.code for issue in validation.issues}
+        self.assertTrue(validation.is_valid)
+        self.assertNotIn("missing_scan_or_distance_mapping", issue_codes)
+
+    def test_gpr_upload_requires_import_metadata(self) -> None:
+        upload_file = self._make_upload_file(
+            "gpr-missing-config.csv",
+            b"distance,interface_1\n0,4.2\n",
+        )
+
+        with self.assertRaises(HTTPException) as context:
+            asyncio.run(
+                create_upload(
+                    project_id=self.project.id,
+                    data_type=DataType.GPR,
+                    notes="Missing GPR metadata.",
+                    file=upload_file,
+                    gpr_file_identifier=None,
+                    gpr_channel_count=None,
+                    gpr_channel_labels_json=None,
+                    gpr_interface_count=None,
+                    gpr_interface_labels_json=None,
+                    project_repository=self.project_repository,
+                    upload_repository=self.upload_repository,
+                    upload_file_storage=self.upload_file_storage,
+                )
+            )
+
+        self.assertEqual(context.exception.status_code, 422)
+        self.assertIn("file identifier", context.exception.detail.lower())
+
+    def test_invalid_xlsx_preview_returns_parse_error(self) -> None:
+        created_upload = self._create_upload(
+            data_type=DataType.FWD,
+            filename="bad-fwd.xlsx",
+            content=b"not-a-valid-workbook",
+            notes="Broken workbook.",
+        )
+
+        with self.assertRaises(HTTPException) as context:
+            get_upload_preview(
+                created_upload.id,
+                self.upload_repository,
+                self.mapping_definition_service,
+                self.parsing_service,
+            )
+
+        self.assertEqual(context.exception.status_code, 422)
+        self.assertIn("XLSX parsing failed", context.exception.detail)
 
     def test_project_uploads_require_existing_project(self) -> None:
         with self.assertRaises(HTTPException) as context:
@@ -222,9 +568,9 @@ class UploadFoundationTests(unittest.TestCase):
                 data_type=DataType.GPR,
                 is_default=False,
                 field_mappings={
-                    "segment_id": "segment",
-                    "scan_distance_ft": "offset_ft",
-                    "dielectric": "epsilon_r",
+                    "scan": "trace_number",
+                    "distance": "offset_ft",
+                    "interface_depth_1": "layer_1_depth",
                 },
             ),
             self.schema_repository,
@@ -240,8 +586,11 @@ class UploadFoundationTests(unittest.TestCase):
         self.assertIn("/schema-templates", paths)
         self.assertIn("/uploads/{upload_id}/preview", paths)
         self.assertIn("/mapping-definitions", paths)
+        self.assertIn("/uploads/{upload_id}/mapping-definition", paths)
         self.assertIn("/uploads/{upload_id}/mapping", paths)
         self.assertIn("/uploads/{upload_id}/validate-mapping", paths)
+        self.assertIn("/uploads/{upload_id}/normalize", paths)
+        self.assertIn("/uploads/{upload_id}/normalized", paths)
 
 
 if __name__ == "__main__":

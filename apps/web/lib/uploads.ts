@@ -4,6 +4,14 @@ export type FileFormat = "csv" | "xlsx" | "unknown";
 
 export type UploadStatus = "received" | "mapping_pending" | "processing" | "failed";
 
+export type GprImportConfig = {
+  file_identifier: string;
+  channel_count: number;
+  channel_labels: Record<string, string>;
+  interface_count: number;
+  interface_labels: Record<string, string>;
+};
+
 export type UploadRecord = {
   id: string;
   project_id: string;
@@ -13,6 +21,7 @@ export type UploadRecord = {
   uploaded_at: string;
   status: UploadStatus;
   notes: string | null;
+  gpr_import_config: GprImportConfig | null;
 };
 
 export type SchemaTemplate = {
@@ -38,6 +47,7 @@ export type UploadPreview = {
   preview_status: PreviewStatus;
   source_columns: SourceColumnPreview[];
   sample_rows: Array<Record<string, string | null>>;
+  row_count: number | null;
   row_count_estimate: number | null;
 };
 
@@ -97,14 +107,103 @@ export type MappingValidationResult = {
   satisfied_required_field_count: number;
 };
 
+export type GprNormalizedValues = {
+  file_identifier: string;
+  scan: number | null;
+  distance: number | null;
+  channel_number: number;
+  channel_label: string;
+  latitude: number | null;
+  longitude: number | null;
+  interface_depths: GprNormalizedInterfaceDepth[];
+};
+
+export type GprNormalizedInterfaceDepth = {
+  interface_number: number;
+  interface_label: string;
+  depth: number;
+};
+
+export type CoreNormalizedValues = {
+  core_id: string;
+  station: string;
+  lane: string | null;
+  total_thickness_in: number;
+  surface_type: string | null;
+};
+
+export type FwdNormalizedValues = {
+  test_id: string;
+  station: string;
+  drop_load_lb: number;
+  d0_mils: number;
+  surface_temp_f: number | null;
+};
+
+export type DcpNormalizedValues = {
+  test_point_id: string;
+  station: string;
+  blow_count: number;
+  depth_mm: number;
+  layer_note: string | null;
+};
+
+type NormalizedRowBase = {
+  upload_id: string;
+  row_index: number;
+  source_row: Record<string, string | null>;
+  mapped_values: Record<string, string | null>;
+};
+
+export type GprNormalizedRow = NormalizedRowBase & {
+  data_type: "gpr";
+  normalized_values: GprNormalizedValues;
+};
+
+export type CoreNormalizedRow = NormalizedRowBase & {
+  data_type: "core";
+  normalized_values: CoreNormalizedValues;
+};
+
+export type FwdNormalizedRow = NormalizedRowBase & {
+  data_type: "fwd";
+  normalized_values: FwdNormalizedValues;
+};
+
+export type DcpNormalizedRow = NormalizedRowBase & {
+  data_type: "dcp";
+  normalized_values: DcpNormalizedValues;
+};
+
+export type NormalizedUploadRow =
+  | GprNormalizedRow
+  | CoreNormalizedRow
+  | FwdNormalizedRow
+  | DcpNormalizedRow;
+
+export type NormalizationRunSummary = {
+  upload_id: string;
+  data_type: DataType;
+  normalized_at: string;
+  total_source_row_count: number;
+  normalized_row_count: number;
+  preview_rows: NormalizedUploadRow[];
+};
+
+export type NormalizedResultSet = NormalizationRunSummary & {
+  rows: NormalizedUploadRow[];
+};
+
 const API_BASE_URL =
   (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const hasJsonBody = typeof init?.body === "string";
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       Accept: "application/json",
+      ...(hasJsonBody ? { "Content-Type": "application/json" } : {}),
       ...(init?.headers ?? {}),
     },
     cache: "no-store",
@@ -136,11 +235,31 @@ export async function createProjectUpload(input: {
   dataType: DataType;
   notes: string;
   file: File;
+  gprImportConfig?: {
+    fileIdentifier: string;
+    channelCount: number;
+    channelLabels: Record<number, string>;
+    interfaceCount: number;
+    interfaceLabels: Record<number, string>;
+  } | null;
 }): Promise<UploadRecord> {
   const formData = new FormData();
   formData.append("data_type", input.dataType);
   formData.append("notes", input.notes);
   formData.append("file", input.file);
+  if (input.gprImportConfig) {
+    formData.append("gpr_file_identifier", input.gprImportConfig.fileIdentifier);
+    formData.append("gpr_channel_count", String(input.gprImportConfig.channelCount));
+    formData.append(
+      "gpr_channel_labels_json",
+      JSON.stringify(input.gprImportConfig.channelLabels),
+    );
+    formData.append("gpr_interface_count", String(input.gprImportConfig.interfaceCount));
+    formData.append(
+      "gpr_interface_labels_json",
+      JSON.stringify(input.gprImportConfig.interfaceLabels),
+    );
+  }
 
   return requestJson<UploadRecord>(`/projects/${input.projectId}/uploads`, {
     method: "POST",
@@ -182,6 +301,16 @@ export async function getMappingDefinitions(
   );
 }
 
+export async function getUploadMappingDefinition(
+  uploadId: string,
+  signal?: AbortSignal,
+): Promise<MappingDefinition> {
+  return requestJson<MappingDefinition>(`/uploads/${uploadId}/mapping-definition`, {
+    method: "GET",
+    signal,
+  });
+}
+
 export async function getUploadMapping(
   uploadId: string,
   signal?: AbortSignal,
@@ -213,4 +342,22 @@ export async function validateUploadMapping(input: {
       body: JSON.stringify({ assignments: input.assignments }),
     },
   );
+}
+
+export async function normalizeUpload(
+  uploadId: string,
+): Promise<NormalizationRunSummary> {
+  return requestJson<NormalizationRunSummary>(`/uploads/${uploadId}/normalize`, {
+    method: "POST",
+  });
+}
+
+export async function getNormalizedUpload(
+  uploadId: string,
+  signal?: AbortSignal,
+): Promise<NormalizedResultSet> {
+  return requestJson<NormalizedResultSet>(`/uploads/${uploadId}/normalized`, {
+    method: "GET",
+    signal,
+  });
 }
