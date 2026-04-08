@@ -9,6 +9,7 @@
   --shadow: 0 24px 60px rgba(26, 46, 36, 0.08);
   --success: #2d6a4f;
   --error: #b00020;
+  --warning: #8a5a12;
 }
 
 * {
@@ -267,6 +268,18 @@ textarea:focus {
   color: var(--success);
 }
 
+.message.warning {
+  color: var(--warning);
+}
+
+.message-action-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
 .table-shell {
   overflow-x: auto;
 }
@@ -406,6 +419,10 @@ textarea:focus {
   gap: 1rem;
 }
 
+.compact-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
 .summary-card,
 .definition-card,
 .validation-item {
@@ -418,6 +435,50 @@ textarea:focus {
 .definition-card {
   display: grid;
   gap: 0.8rem;
+}
+
+.workflow-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.78)),
+    radial-gradient(circle at top right, rgba(164, 87, 42, 0.08), transparent 46%);
+}
+
+.workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.9rem;
+}
+
+.workflow-step {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.85rem;
+  align-items: flex-start;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.workflow-step-active {
+  border-color: rgba(164, 87, 42, 0.28);
+  background: rgba(164, 87, 42, 0.08);
+}
+
+.workflow-step-complete {
+  border-color: rgba(45, 106, 79, 0.22);
+  background: rgba(45, 106, 79, 0.08);
+}
+
+.workflow-step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: rgba(26, 46, 36, 0.08);
+  font-weight: 700;
 }
 
 .status-group,
@@ -463,6 +524,17 @@ textarea:focus {
   border-color: rgba(164, 87, 42, 0.24);
 }
 
+.preview-key-value-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.85rem;
+}
+
+.preview-key-value {
+  display: grid;
+  gap: 0.3rem;
+}
+
 @media (max-width: 640px) {
   .page-shell {
     width: min(100% - 1.25rem, 960px);
@@ -476,13 +548,18 @@ textarea:focus {
 
   .context-banner,
   .section-heading,
-  .form-grid {
+  .form-grid,
+  .message-action-row {
     grid-template-columns: 1fr;
   }
 
   .context-banner {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .message-action-row {
+    display: grid;
   }
 
   .projects-table {

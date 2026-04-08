@@ -5,12 +5,16 @@ import { useEffect, useMemo, useState } from "react";
 import {
   getUploadMapping,
   getUploadMappingDefinition,
+  getNormalizedUpload,
   getUploadPreview,
+  normalizeUpload,
   saveUploadMapping,
   validateUploadMapping,
   type ColumnMappingAssignment,
   type MappingDefinition,
   type MappingValidationResult,
+  type NormalizationRunSummary,
+  type NormalizedUploadRow,
   type UploadMappingState,
   type UploadPreview,
 } from "../../../../../../lib/uploads";
@@ -37,6 +41,116 @@ function buildConfiguredLabels(
   }));
 }
 
+function buildAssignmentsSignature(assignments: ColumnMappingAssignment[]): string {
+  return JSON.stringify(
+    assignments.map((assignment) => [
+      assignment.source_column,
+      assignment.canonical_field,
+    ]),
+  );
+}
+
+function isMissingNormalizedResultError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message ===
+      "Normalized results not found. Run normalization for this upload first."
+  );
+}
+
+function formatOptionalValue(value: number | string | null | undefined): string {
+  if (value === null || value === undefined || value === "") {
+    return "Not available";
+  }
+  return String(value);
+}
+
+function buildNormalizedPreviewEntries(
+  row: NormalizedUploadRow,
+): Array<{ label: string; value: string }> {
+  if (row.data_type === "gpr") {
+    return [
+      {
+        label: "File identifier",
+        value: row.normalized_values.file_identifier,
+      },
+      {
+        label: "Scan",
+        value: formatOptionalValue(row.normalized_values.scan),
+      },
+      {
+        label: "Distance",
+        value: formatOptionalValue(row.normalized_values.distance),
+      },
+      {
+        label: "Channel",
+        value: `${row.normalized_values.channel_number} | ${row.normalized_values.channel_label}`,
+      },
+      {
+        label: "GPS",
+        value: `${formatOptionalValue(row.normalized_values.latitude)}, ${formatOptionalValue(
+          row.normalized_values.longitude,
+        )}`,
+      },
+      {
+        label: "Interfaces",
+        value:
+          row.normalized_values.interface_depths.length === 0
+            ? "None"
+            : row.normalized_values.interface_depths
+                .map(
+                  (item) =>
+                    `${item.interface_label} (${item.interface_number}): ${item.depth}`,
+                )
+                .join(" | "),
+      },
+    ];
+  }
+
+  if (row.data_type === "core") {
+    return [
+      { label: "Core ID", value: row.normalized_values.core_id },
+      { label: "Station", value: row.normalized_values.station },
+      { label: "Lane", value: formatOptionalValue(row.normalized_values.lane) },
+      {
+        label: "Total thickness (in)",
+        value: String(row.normalized_values.total_thickness_in),
+      },
+      {
+        label: "Surface type",
+        value: formatOptionalValue(row.normalized_values.surface_type),
+      },
+    ];
+  }
+
+  if (row.data_type === "fwd") {
+    return [
+      { label: "Test ID", value: row.normalized_values.test_id },
+      { label: "Station", value: row.normalized_values.station },
+      {
+        label: "Drop load (lb)",
+        value: String(row.normalized_values.drop_load_lb),
+      },
+      { label: "D0 (mils)", value: String(row.normalized_values.d0_mils) },
+      {
+        label: "Surface temp (F)",
+        value: formatOptionalValue(row.normalized_values.surface_temp_f),
+      },
+    ];
+  }
+
+  return [
+    { label: "Test point ID", value: row.normalized_values.test_point_id },
+    { label: "Station", value: row.normalized_values.station },
+    { label: "Blow count", value: String(row.normalized_values.blow_count) },
+    { label: "Depth (mm)", value: String(row.normalized_values.depth_mm) },
+    {
+      label: "Layer note",
+      value: formatOptionalValue(row.normalized_values.layer_note),
+    },
+  ];
+}
+
 export default function MappingClient({
   projectId,
   uploadId,
@@ -48,29 +162,59 @@ export default function MappingClient({
   const [definition, setDefinition] = useState<MappingDefinition | null>(null);
   const [mappingState, setMappingState] = useState<UploadMappingState | null>(null);
   const [validation, setValidation] = useState<MappingValidationResult | null>(null);
+  const [normalizationSummary, setNormalizationSummary] =
+    useState<NormalizationRunSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
+  const [isNormalizing, setIsNormalizing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [normalizationError, setNormalizationError] = useState<string | null>(null);
+  const [savedAssignmentsSignature, setSavedAssignmentsSignature] =
+    useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
+
+    async function loadExistingNormalizationResult(): Promise<NormalizationRunSummary | null> {
+      try {
+        return await getNormalizedUpload(uploadId, controller.signal);
+      } catch (error) {
+        if (isMissingNormalizedResultError(error)) {
+          return null;
+        }
+        throw error;
+      }
+    }
 
     async function loadMappingWorkspace() {
       try {
         setIsLoading(true);
         setErrorMessage(null);
+        setNormalizationError(null);
 
-        const loadedPreview = await getUploadPreview(uploadId, controller.signal);
-        const [loadedDefinition, loadedMapping] = await Promise.all([
+        const [loadedPreview, loadedDefinition, loadedMapping] = await Promise.all([
+          getUploadPreview(uploadId, controller.signal),
           getUploadMappingDefinition(uploadId, controller.signal),
           getUploadMapping(uploadId, controller.signal),
+        ]);
+        const [loadedValidation, loadedNormalizationResult] = await Promise.all([
+          validateUploadMapping({
+            uploadId,
+            assignments: loadedMapping.assignments,
+          }),
+          loadExistingNormalizationResult(),
         ]);
 
         setPreview(loadedPreview);
         setDefinition(loadedDefinition);
         setMappingState(loadedMapping);
+        setValidation(loadedValidation);
+        setNormalizationSummary(loadedNormalizationResult);
+        setSavedAssignmentsSignature(
+          buildAssignmentsSignature(loadedMapping.assignments),
+        );
       } catch (error) {
         if (!controller.signal.aborted) {
           setErrorMessage(
@@ -103,6 +247,11 @@ export default function MappingClient({
     }
     return nextLookup;
   }, [mappingState]);
+  const currentAssignmentsSignature = useMemo(
+    () =>
+      mappingState ? buildAssignmentsSignature(mappingState.assignments) : null,
+    [mappingState],
+  );
 
   const gprConfig = preview?.upload.gpr_import_config ?? null;
   const configuredChannelLabels = useMemo(
@@ -127,6 +276,37 @@ export default function MappingClient({
         : [],
     [gprConfig],
   );
+  const validationErrors = useMemo(
+    () => validation?.issues.filter((issue) => issue.severity === "error") ?? [],
+    [validation],
+  );
+  const validationWarnings = useMemo(
+    () => validation?.issues.filter((issue) => issue.severity === "warning") ?? [],
+    [validation],
+  );
+  const hasLatitudeMapping = useMemo(
+    () =>
+      mappingState?.assignments.some(
+        (assignment) => assignment.canonical_field === "latitude",
+      ) ?? false,
+    [mappingState],
+  );
+  const hasLongitudeMapping = useMemo(
+    () =>
+      mappingState?.assignments.some(
+        (assignment) => assignment.canonical_field === "longitude",
+      ) ?? false,
+    [mappingState],
+  );
+  const hasUnsavedChanges =
+    currentAssignmentsSignature !== null &&
+    savedAssignmentsSignature !== null &&
+    currentAssignmentsSignature !== savedAssignmentsSignature;
+  const canNormalize =
+    mappingState?.is_saved === true &&
+    !hasUnsavedChanges &&
+    validation?.is_valid === true &&
+    !isNormalizing;
 
   function handleAssignmentChange(sourceColumn: string, canonicalField: string) {
     setMappingState((current) => {
@@ -143,10 +323,13 @@ export default function MappingClient({
                 canonical_field: canonicalField || null,
               }
             : assignment,
-        ),
+          ),
       };
     });
     setSuccessMessage(null);
+    setValidation(null);
+    setNormalizationSummary(null);
+    setNormalizationError(null);
   }
 
   async function handleSaveMapping() {
@@ -157,12 +340,24 @@ export default function MappingClient({
     try {
       setIsSaving(true);
       setErrorMessage(null);
+      setNormalizationError(null);
       const savedMapping = await saveUploadMapping({
         uploadId,
         assignments: mappingState.assignments,
       });
+      const savedValidation = await validateUploadMapping({
+        uploadId,
+        assignments: savedMapping.assignments,
+      });
       setMappingState(savedMapping);
-      setSuccessMessage("Mapping selections were saved for this upload.");
+      setSavedAssignmentsSignature(buildAssignmentsSignature(savedMapping.assignments));
+      setValidation(savedValidation);
+      setNormalizationSummary(null);
+      setSuccessMessage(
+        savedValidation.is_valid
+          ? "Mapping was saved and validated. The upload is ready for normalization."
+          : "Mapping was saved. Review the validation panel before normalization.",
+      );
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "The mapping could not be saved.",
@@ -180,6 +375,7 @@ export default function MappingClient({
     try {
       setIsValidating(true);
       setErrorMessage(null);
+      setNormalizationError(null);
       const result = await validateUploadMapping({
         uploadId,
         assignments: mappingState.assignments,
@@ -196,6 +392,43 @@ export default function MappingClient({
       );
     } finally {
       setIsValidating(false);
+    }
+  }
+
+  async function handleNormalizeUpload() {
+    if (mappingState === null) {
+      return;
+    }
+
+    if (!mappingState.is_saved || hasUnsavedChanges) {
+      setNormalizationError(
+        "Save the current mapping before running normalization.",
+      );
+      return;
+    }
+
+    if (!validation?.is_valid) {
+      setNormalizationError(
+        "Validation must pass before normalization can run.",
+      );
+      return;
+    }
+
+    try {
+      setIsNormalizing(true);
+      setErrorMessage(null);
+      setNormalizationError(null);
+      const result = await normalizeUpload(uploadId);
+      setNormalizationSummary(result);
+      setSuccessMessage("Normalization completed for this upload.");
+    } catch (error) {
+      setNormalizationError(
+        error instanceof Error
+          ? error.message
+          : "Normalization could not be completed.",
+      );
+    } finally {
+      setIsNormalizing(false);
     }
   }
 
@@ -217,8 +450,96 @@ export default function MappingClient({
     );
   }
 
+  const workflowStatus =
+    normalizationSummary !== null
+      ? "Normalized"
+      : canNormalize
+        ? "Ready to normalize"
+        : hasUnsavedChanges
+          ? "Save mapping changes"
+          : validation === null
+            ? "Validate mapping"
+            : validation.is_valid
+              ? "Save mapping to normalize"
+              : "Resolve validation errors";
+  const normalizationPreviewRows = normalizationSummary?.preview_rows ?? [];
+  const showGpsGuidance =
+    preview.upload.data_type === "gpr" && (!hasLatitudeMapping || !hasLongitudeMapping);
+
   return (
     <div className="stack-lg">
+      <section className="panel workflow-panel">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Workflow</p>
+            <h2>Upload to normalized rows</h2>
+          </div>
+          <p className="section-copy">
+            Follow the steps in order so the source file moves cleanly from parsed
+            columns into RoadViz-ready records.
+          </p>
+        </div>
+
+        <div className="workflow-grid">
+          <article className="workflow-step workflow-step-complete">
+            <div className="workflow-step-number">1</div>
+            <div>
+              <div className="table-primary">Upload recorded</div>
+              <p className="inline-note">
+                The source file is stored and parsed for preview.
+              </p>
+            </div>
+          </article>
+          <article
+            className={`workflow-step ${
+              hasUnsavedChanges || !mappingState.is_saved
+                ? "workflow-step-active"
+                : "workflow-step-complete"
+            }`}
+          >
+            <div className="workflow-step-number">2</div>
+            <div>
+              <div className="table-primary">Map columns</div>
+              <p className="inline-note">
+                Match each source column to the correct RoadViz field.
+              </p>
+            </div>
+          </article>
+          <article
+            className={`workflow-step ${
+              validation === null
+                ? ""
+                : validation.is_valid
+                  ? "workflow-step-complete"
+                  : "workflow-step-active"
+            }`}
+          >
+            <div className="workflow-step-number">3</div>
+            <div>
+              <div className="table-primary">Validate mapping</div>
+              <p className="inline-note">
+                Review required fields, warnings, and GPS guidance.
+              </p>
+            </div>
+          </article>
+          <article
+            className={`workflow-step ${
+              normalizationSummary !== null
+                ? "workflow-step-complete"
+                : canNormalize
+                  ? "workflow-step-active"
+                  : ""
+            }`}
+          >
+            <div className="workflow-step-number">4</div>
+            <div>
+              <div className="table-primary">Normalize rows</div>
+              <p className="inline-note">Current status: {workflowStatus}.</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section className="panel">
         <div className="section-heading">
           <div>
@@ -275,8 +596,8 @@ export default function MappingClient({
               <h2>Upload-level GPR metadata</h2>
             </div>
             <p className="section-copy">
-              This upload configuration controls the required interface and channel
-              mapping fields below.
+              This upload configuration determines which GPR fields RoadViz expects
+              during mapping and how normalized rows will be labeled.
             </p>
           </div>
 
@@ -301,13 +622,25 @@ export default function MappingClient({
               <div className="table-secondary">Interface count</div>
               <div className="table-primary">{gprConfig.interface_count}</div>
             </article>
+            <article className="summary-card">
+              <div className="table-secondary">Location fields</div>
+              <div className="table-primary">Scan and Distance stay separate</div>
+            </article>
           </div>
 
           <div className="stack-sm">
             <p className="inline-note">
-              Latitude and longitude are optional for import, but leaving them unmapped
-              will limit current map display for this upload.
+              Scan identifies the record position in the radar file. Distance is the
+              physical position along the roadway. Map both when both are available in
+              the source file.
             </p>
+            {showGpsGuidance ? (
+              <p className="message warning">
+                GPS warning: latitude and longitude are not both mapped yet. Normalization
+                can continue, but current map display will stay limited until both
+                coordinates are provided.
+              </p>
+            ) : null}
             <div className="chip-row">
               {configuredChannelLabels.map((channel) => (
                 <code key={`configured-channel-${channel.number}`}>
@@ -375,7 +708,7 @@ export default function MappingClient({
           </div>
           <p className="section-copy">
             {definition.data_type === "gpr"
-              ? "For GPR uploads, Scan and Distance are separate canonical fields. Map each source column independently when both exist."
+              ? "For GPR uploads, Scan and Distance are separate canonical fields. Map each source column independently when both exist, then validate before normalizing."
               : "Start with the required fields, then map helpful context columns as needed."}
           </p>
         </div>
@@ -452,6 +785,11 @@ export default function MappingClient({
               ? `Last saved ${formatTimestamp(mappingState.updated_at)}`
               : "This mapping has not been saved yet."}
           </p>
+          <p className="inline-note">
+            {hasUnsavedChanges
+              ? "Current selections differ from the last saved mapping."
+              : "Normalization uses the saved mapping shown here."}
+          </p>
         </div>
       </section>
 
@@ -474,6 +812,34 @@ export default function MappingClient({
           </p>
         ) : (
           <div className="stack-sm">
+            <div className="summary-grid">
+              <article className="summary-card">
+                <div className="table-secondary">Validation status</div>
+                <div className="table-primary">
+                  {validation.is_valid ? "Ready for normalization" : "Action needed"}
+                </div>
+              </article>
+              <article className="summary-card">
+                <div className="table-secondary">Required fields</div>
+                <div className="table-primary">
+                  {validation.satisfied_required_field_count} of{" "}
+                  {validation.required_field_count}
+                </div>
+              </article>
+              <article className="summary-card">
+                <div className="table-secondary">Errors</div>
+                <div className="table-primary">{validationErrors.length}</div>
+              </article>
+              <article className="summary-card">
+                <div className="table-secondary">Warnings</div>
+                <div className="table-primary">{validationWarnings.length}</div>
+              </article>
+              <article className="summary-card">
+                <div className="table-secondary">Mapped columns</div>
+                <div className="table-primary">{validation.mapped_field_count}</div>
+              </article>
+            </div>
+
             <div className="validation-summary">
               <span
                 className={`status-pill ${
@@ -483,8 +849,9 @@ export default function MappingClient({
                 {validation.is_valid ? "Valid mapping" : "Validation issues found"}
               </span>
               <p className="inline-note">
-                Required fields satisfied: {validation.satisfied_required_field_count} of{" "}
-                {validation.required_field_count}. Mapped columns: {validation.mapped_field_count}.
+                {validation.is_valid
+                  ? "Save the mapping if needed, then run normalization."
+                  : "Resolve errors first. Warnings can remain if they reflect known source limitations."}
               </p>
             </div>
 
@@ -520,6 +887,142 @@ export default function MappingClient({
                 ))}
               </div>
             )}
+          </div>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Normalize</p>
+            <h2>Run and review normalized rows</h2>
+          </div>
+          <p className="section-copy">
+            Normalization applies the saved mapping to each parsed row and shows a
+            compact preview of the RoadViz-ready output.
+          </p>
+        </div>
+
+        <div className="form-actions">
+          <button
+            className="button-primary"
+            type="button"
+            onClick={handleNormalizeUpload}
+            disabled={!canNormalize}
+          >
+            {isNormalizing ? "Normalizing..." : "Run normalization"}
+          </button>
+          <p className="inline-note">
+            {normalizationSummary !== null
+              ? `Last normalized ${formatTimestamp(normalizationSummary.normalized_at)}`
+              : !mappingState.is_saved
+                ? "Save the mapping before normalization."
+                : hasUnsavedChanges
+                  ? "Save mapping updates before normalization."
+                  : validation?.is_valid
+                    ? "This upload is ready to normalize."
+                    : "Run validation and resolve any errors before normalization."}
+          </p>
+        </div>
+
+        {normalizationError ? <p className="message error">{normalizationError}</p> : null}
+
+        {normalizationSummary === null ? (
+          <p className="empty-state">
+            No normalization results yet. Once validation passes, run normalization to
+            review row counts and normalized sample rows.
+          </p>
+        ) : (
+          <div className="stack-sm">
+            <div className="summary-grid">
+              <article className="summary-card">
+                <div className="table-secondary">Normalization status</div>
+                <div className="table-primary">Completed</div>
+              </article>
+              <article className="summary-card">
+                <div className="table-secondary">Source rows</div>
+                <div className="table-primary">
+                  {normalizationSummary.total_source_row_count}
+                </div>
+              </article>
+              <article className="summary-card">
+                <div className="table-secondary">Normalized rows</div>
+                <div className="table-primary">
+                  {normalizationSummary.normalized_row_count}
+                </div>
+              </article>
+              <article className="summary-card">
+                <div className="table-secondary">Validation warnings</div>
+                <div className="table-primary">{validationWarnings.length}</div>
+              </article>
+              <article className="summary-card">
+                <div className="table-secondary">Validation errors</div>
+                <div className="table-primary">{validationErrors.length}</div>
+              </article>
+            </div>
+
+            {validationWarnings.length > 0 ? (
+              <div className="validation-list">
+                {validationWarnings.map((issue) => (
+                  <article
+                    className="validation-item validation-warning"
+                    key={`normalization-warning-${issue.code}-${issue.source_column ?? ""}`}
+                  >
+                    <div className="template-card-header">
+                      <div className="table-primary">{issue.message}</div>
+                      <span className="status-pill">warning</span>
+                    </div>
+                    {(issue.source_column || issue.canonical_field) && (
+                      <div className="table-secondary">
+                        {[issue.source_column, issue.canonical_field]
+                          .filter(Boolean)
+                          .join(" | ")}
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="stack-sm">
+              <div className="template-card-header">
+                <div>
+                  <div className="table-primary">Normalized row preview</div>
+                  <div className="table-secondary">
+                    Showing the first {normalizationPreviewRows.length} normalized rows.
+                  </div>
+                </div>
+              </div>
+
+              {normalizationPreviewRows.length === 0 ? (
+                <p className="empty-state">
+                  Normalization completed, but no preview rows are available.
+                </p>
+              ) : (
+                <div className="template-grid">
+                  {normalizationPreviewRows.map((row) => (
+                    <article className="definition-card" key={`normalized-row-${row.row_index}`}>
+                      <div className="template-card-header">
+                        <div>
+                          <div className="table-primary">Row {row.row_index}</div>
+                          <div className="table-secondary">
+                            {row.data_type.toUpperCase()} normalized values
+                          </div>
+                        </div>
+                      </div>
+                      <div className="preview-key-value-grid">
+                        {buildNormalizedPreviewEntries(row).map((entry) => (
+                          <div className="preview-key-value" key={`${row.row_index}-${entry.label}`}>
+                            <div className="table-secondary">{entry.label}</div>
+                            <div className="table-primary">{entry.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </section>

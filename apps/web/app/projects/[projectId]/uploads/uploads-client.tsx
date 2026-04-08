@@ -92,6 +92,7 @@ export default function UploadsClient({
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [latestUploadId, setLatestUploadId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -210,6 +211,7 @@ export default function UploadsClient({
     setSelectedProjectId(projectId);
     setSuccessMessage(null);
     setErrorMessage(null);
+    setLatestUploadId(null);
     router.replace(`/projects/${projectId}/uploads`);
   }
 
@@ -270,7 +272,10 @@ export default function UploadsClient({
           }));
           setSelectedFile(null);
           setErrorMessage(null);
-          setSuccessMessage(`Recorded upload ${createdUpload.filename}.`);
+          setLatestUploadId(createdUpload.id);
+          setSuccessMessage(
+            `Recorded upload ${createdUpload.filename}. Next step: open the mapping workspace and validate the column assignments.`,
+          );
         } catch (error) {
           setErrorMessage(
             error instanceof Error ? error.message : "Upload could not be created.",
@@ -284,6 +289,49 @@ export default function UploadsClient({
 
   return (
     <div className="stack-lg">
+      <section className="panel workflow-panel">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Workflow</p>
+            <h2>Upload to normalization</h2>
+          </div>
+          <p className="section-copy">
+            Keep the workflow linear: record the source file, map the columns, validate
+            the result, then normalize the rows.
+          </p>
+        </div>
+
+        <div className="workflow-grid">
+          <article className="workflow-step workflow-step-active">
+            <div className="workflow-step-number">1</div>
+            <div>
+              <div className="table-primary">Upload source file</div>
+              <p className="inline-note">
+                Select the project, data type, and source file.
+              </p>
+            </div>
+          </article>
+          <article className="workflow-step">
+            <div className="workflow-step-number">2</div>
+            <div>
+              <div className="table-primary">Map source columns</div>
+              <p className="inline-note">
+                Assign each uploaded column to a RoadViz field.
+              </p>
+            </div>
+          </article>
+          <article className="workflow-step">
+            <div className="workflow-step-number">3</div>
+            <div>
+              <div className="table-primary">Validate and normalize</div>
+              <p className="inline-note">
+                Review warnings, then generate normalized rows.
+              </p>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section className="panel">
         <div className="section-heading">
           <div>
@@ -291,8 +339,8 @@ export default function UploadsClient({
             <h2>Record a source file against a project.</h2>
           </div>
           <p className="section-copy">
-            Store source file bytes locally, tie them to a project, and prepare them for
-            real preview, mapping, and normalization work.
+            Store source file bytes locally, tie them to a project, then move directly
+            into the mapping workspace for validation and normalization.
           </p>
         </div>
 
@@ -427,6 +475,26 @@ export default function UploadsClient({
                   </label>
 
                   <div className="field-full stack-sm">
+                    <div className="summary-grid compact-summary-grid">
+                      <article className="summary-card">
+                        <div className="table-secondary">File identifier</div>
+                        <div className="table-primary">
+                          {form.gpr.fileIdentifier.trim() || "Required before mapping"}
+                        </div>
+                      </article>
+                      <article className="summary-card">
+                        <div className="table-secondary">Channels</div>
+                        <div className="table-primary">{form.gpr.channelCount}</div>
+                      </article>
+                      <article className="summary-card">
+                        <div className="table-secondary">Interfaces</div>
+                        <div className="table-primary">{form.gpr.interfaceCount}</div>
+                      </article>
+                      <article className="summary-card">
+                        <div className="table-secondary">Location fields later</div>
+                        <div className="table-primary">Scan and Distance stay separate</div>
+                      </article>
+                    </div>
                     <div>
                       <span>Optional channel labels</span>
                       <p className="inline-note">
@@ -496,14 +564,15 @@ export default function UploadsClient({
 
                   <div className="field-full stack-sm">
                     <p className="inline-note">
-                      GPR MVP intake supports single-channel files and multi-channel long
+                      GPR intake supports single-channel files and multi-channel long
                       format only. Multi-channel wide format is intentionally unsupported
-                      in this step.
+                      here.
                     </p>
                     <p className="inline-note">
-                      Latitude and longitude can be mapped later for map display. Missing
-                      GPS will warn but will not block import, and station or MP columns
-                      are intentionally out of scope for this enhancement.
+                      In the next step, map Scan and Distance separately when both exist.
+                      Latitude and longitude are optional for normalization, but missing
+                      GPS will trigger a warning because current map display needs both
+                      coordinates.
                     </p>
                   </div>
                 </>
@@ -527,8 +596,8 @@ export default function UploadsClient({
                 {isPending ? "Saving..." : "Record upload"}
               </button>
               <p className="inline-note">
-                Uploaded CSV and XLSX files are stored locally so preview and mapping can
-                read the real source content.
+                Uploaded CSV and XLSX files are stored locally so preview, mapping, and
+                normalization can read the real source content.
               </p>
             </div>
           </form>
@@ -550,6 +619,20 @@ export default function UploadsClient({
 
         {errorMessage ? <p className="message error">{errorMessage}</p> : null}
         {successMessage ? <p className="message success">{successMessage}</p> : null}
+        {successMessage && latestUploadId && selectedProjectId ? (
+          <div className="message-action-row">
+            <Link
+              className="button-primary"
+              href={`/projects/${selectedProjectId}/uploads/${latestUploadId}/mapping`}
+            >
+              Continue to mapping
+            </Link>
+            <p className="inline-note">
+              The next step is to review parsed columns, validate the mapping, and run
+              normalization.
+            </p>
+          </div>
+        ) : null}
       </section>
 
       <section className="panel">
@@ -591,6 +674,15 @@ export default function UploadsClient({
                   <tr key={upload.id}>
                     <td>
                       <div className="table-primary">{upload.filename}</div>
+                      {upload.data_type === "gpr" && upload.gpr_import_config ? (
+                        <div className="table-secondary">
+                          {upload.gpr_import_config.file_identifier} |{" "}
+                          {upload.gpr_import_config.channel_count} channel
+                          {upload.gpr_import_config.channel_count === 1 ? "" : "s"} |{" "}
+                          {upload.gpr_import_config.interface_count} interface
+                          {upload.gpr_import_config.interface_count === 1 ? "" : "s"}
+                        </div>
+                      ) : null}
                     </td>
                     <td>{upload.data_type.toUpperCase()}</td>
                     <td>{upload.file_format.toUpperCase()}</td>
@@ -606,7 +698,9 @@ export default function UploadsClient({
                         className="button-secondary button-inline"
                         href={`/projects/${selectedProjectId}/uploads/${upload.id}/mapping`}
                       >
-                        Map columns
+                        {upload.status === "mapping_pending"
+                          ? "Continue to mapping"
+                          : "Review mapping"}
                       </Link>
                     </td>
                   </tr>
