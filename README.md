@@ -87,16 +87,16 @@ infra/
 
 The repository now includes the first MVP product object:
 
-- Project CRUD foundation in the FastAPI backend with an in-memory repository
-- Upload intake records tied to projects with local source-file storage
+- Project CRUD foundation in the FastAPI backend with PostgreSQL-backed persistence
+- Upload intake records tied to projects with local source-file storage and database-backed metadata
 - Schema templates for supported pavement data types
 - Real CSV/XLSX upload preview, source-to-canonical mapping, and validation foundation
-- Mapping-driven normalization foundation for GPR, core, FWD, and DCP uploads
+- Mapping-driven normalization foundation for GPR, core, FWD, and DCP uploads with persisted mappings and normalization results
 - A Next.js Projects and Uploads workflow for creating records and mapping source columns
 
-Uploaded source files are stored locally under `apps/api/.storage/uploads` during local development.
+Uploaded source files are stored locally under `apps/api/.storage/uploads` during local development. The API now stores project records, upload metadata, GPR upload configuration, schema templates, upload mappings, and normalization results in PostgreSQL on startup using a minimal built-in schema bootstrap.
 
-It does not yet include engineering analysis workflows, authentication, database-backed upload persistence, or reporting pipelines.
+It does not yet include engineering analysis workflows, authentication, cloud file storage, or reporting pipelines.
 
 ## Mapping Foundation Verification
 

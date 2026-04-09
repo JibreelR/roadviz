@@ -6,13 +6,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.upload_mappings.schemas import MappingValidationIssue
 from app.uploads.schemas import DataType
 
 
 class GprNormalizedInterfaceDepth(BaseModel):
     interface_number: int = Field(..., ge=1)
     interface_label: str
-    depth: float
+    depth: float | None = None
 
 
 class GprNormalizedValues(BaseModel):
@@ -89,5 +90,17 @@ class NormalizationRunSummary(BaseModel):
     preview_rows: list[NormalizedUploadRow] = Field(default_factory=list)
 
 
+class NormalizedIssueSummary(BaseModel):
+    error_count: int = Field(default=0, ge=0)
+    warning_count: int = Field(default=0, ge=0)
+    errors: list[MappingValidationIssue] = Field(default_factory=list)
+    warnings: list[MappingValidationIssue] = Field(default_factory=list)
+
+
 class NormalizedResultSet(NormalizationRunSummary):
     rows: list[NormalizedUploadRow] = Field(default_factory=list)
+    rows_offset: int = Field(default=0, ge=0)
+    rows_limit: int = Field(default=0, ge=0)
+    returned_row_count: int = Field(default=0, ge=0)
+    has_more_rows: bool = False
+    issue_summary: NormalizedIssueSummary | None = None

@@ -121,7 +121,7 @@ export type GprNormalizedValues = {
 export type GprNormalizedInterfaceDepth = {
   interface_number: number;
   interface_label: string;
-  depth: number;
+  depth: number | null;
 };
 
 export type CoreNormalizedValues = {
@@ -192,6 +192,16 @@ export type NormalizationRunSummary = {
 
 export type NormalizedResultSet = NormalizationRunSummary & {
   rows: NormalizedUploadRow[];
+  rows_offset: number;
+  rows_limit: number;
+  returned_row_count: number;
+  has_more_rows: boolean;
+  issue_summary: {
+    error_count: number;
+    warning_count: number;
+    errors: MappingValidationIssue[];
+    warnings: MappingValidationIssue[];
+  } | null;
 };
 
 const API_BASE_URL =

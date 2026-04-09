@@ -100,7 +100,7 @@ function buildNormalizedPreviewEntries(
             : row.normalized_values.interface_depths
                 .map(
                   (item) =>
-                    `${item.interface_label} (${item.interface_number}): ${item.depth}`,
+                    `${item.interface_label} (${item.interface_number}): ${formatOptionalValue(item.depth)}`,
                 )
                 .join(" | "),
       },

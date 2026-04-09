@@ -334,31 +334,51 @@ class UploadFoundationTests(unittest.TestCase):
             self.parsing_service,
             self.normalized_upload_repository,
         )
-        result = get_normalized_upload(
+        default_result = get_normalized_upload(
             created_upload.id,
+            0,
+            0,
             self.upload_repository,
+            self.upload_mapping_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+            self.normalized_upload_repository,
+        )
+        paged_result = get_normalized_upload(
+            created_upload.id,
+            1,
+            0,
+            self.upload_repository,
+            self.upload_mapping_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
             self.normalized_upload_repository,
         )
 
         self.assertEqual(summary.normalized_row_count, 2)
-        self.assertEqual(result.rows[0].data_type, DataType.GPR)
-        self.assertEqual(result.rows[0].normalized_values.file_identifier, "Lane 2")
-        self.assertEqual(result.rows[0].normalized_values.scan, 10.0)
-        self.assertEqual(result.rows[0].normalized_values.distance, 0.0)
-        self.assertEqual(result.rows[0].normalized_values.channel_number, 2)
+        self.assertEqual(default_result.rows, [])
+        self.assertEqual(default_result.returned_row_count, 0)
+        self.assertEqual(default_result.preview_rows[0].data_type, DataType.GPR)
+        self.assertEqual(default_result.issue_summary.error_count, 0)
+        self.assertGreaterEqual(default_result.issue_summary.warning_count, 0)
+        self.assertEqual(paged_result.rows[0].data_type, DataType.GPR)
+        self.assertEqual(paged_result.rows[0].normalized_values.file_identifier, "Lane 2")
+        self.assertEqual(paged_result.rows[0].normalized_values.scan, 10.0)
+        self.assertEqual(paged_result.rows[0].normalized_values.distance, 0.0)
+        self.assertEqual(paged_result.rows[0].normalized_values.channel_number, 2)
         self.assertEqual(
-            result.rows[0].normalized_values.channel_label,
+            paged_result.rows[0].normalized_values.channel_label,
             "Right Wheelpath",
         )
-        self.assertEqual(result.rows[0].normalized_values.latitude, 40.1)
-        self.assertEqual(result.rows[0].normalized_values.longitude, -74.2)
+        self.assertEqual(paged_result.rows[0].normalized_values.latitude, 40.1)
+        self.assertEqual(paged_result.rows[0].normalized_values.longitude, -74.2)
         self.assertEqual(
-            result.rows[0].normalized_values.interface_depths[0].interface_label,
+            paged_result.rows[0].normalized_values.interface_depths[0].interface_label,
             "Asphalt Surface Course",
         )
-        self.assertEqual(result.rows[0].normalized_values.interface_depths[0].depth, 1.5)
-        self.assertEqual(result.rows[0].mapped_values["scan"], "10")
-        self.assertEqual(result.rows[0].mapped_values["distance"], "0")
+        self.assertEqual(paged_result.rows[0].normalized_values.interface_depths[0].depth, 1.5)
+        self.assertEqual(paged_result.rows[0].mapped_values["scan"], "10")
+        self.assertEqual(paged_result.rows[0].mapped_values["distance"], "0")
 
     def test_gpr_dynamic_definition_requires_channel_mapping_and_warns_for_missing_gps(self) -> None:
         created_upload = self._create_upload(
@@ -500,6 +520,86 @@ class UploadFoundationTests(unittest.TestCase):
         issue_codes = {issue.code for issue in validation.issues}
         self.assertTrue(validation.is_valid)
         self.assertNotIn("missing_scan_or_distance_mapping", issue_codes)
+
+    def test_gpr_normalization_allows_blank_mapped_interface_depth_values(self) -> None:
+        created_upload = self._create_upload(
+            data_type=DataType.GPR,
+            filename="gpr-blank-interface-values.csv",
+            content=(
+                b"distance_ft,depth_surface,depth_base\n"
+                b"0,1.5,5.7\n"
+                b"25,1.6,\n"
+                b"50,,\n"
+            ),
+            notes="GPR import with partial interface values.",
+            gpr_config=self._default_gpr_config(
+                file_identifier="Lane 3",
+                channel_count=1,
+                interface_count=2,
+                interface_labels={
+                    1: "Surface",
+                    2: "Base",
+                },
+            ),
+        )
+        save_upload_mapping(
+            created_upload.id,
+            UploadMappingWrite(
+                assignments=[
+                    {"source_column": "distance_ft", "canonical_field": "distance"},
+                    {
+                        "source_column": "depth_surface",
+                        "canonical_field": "interface_depth_1",
+                    },
+                    {
+                        "source_column": "depth_base",
+                        "canonical_field": "interface_depth_2",
+                    },
+                ]
+            ),
+            self.upload_repository,
+            self.upload_mapping_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+        )
+
+        summary = normalize_upload(
+            created_upload.id,
+            self.upload_repository,
+            self.upload_mapping_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+            self.normalized_upload_repository,
+        )
+        result = get_normalized_upload(
+            created_upload.id,
+            3,
+            0,
+            self.upload_repository,
+            self.upload_mapping_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+            self.normalized_upload_repository,
+        )
+
+        self.assertEqual(summary.normalized_row_count, 3)
+        default_result = get_normalized_upload(
+            created_upload.id,
+            0,
+            0,
+            self.upload_repository,
+            self.upload_mapping_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+            self.normalized_upload_repository,
+        )
+        self.assertEqual(default_result.rows, [])
+        self.assertEqual(result.rows[0].normalized_values.interface_depths[0].depth, 1.5)
+        self.assertEqual(result.rows[0].normalized_values.interface_depths[1].depth, 5.7)
+        self.assertEqual(result.rows[1].normalized_values.interface_depths[0].depth, 1.6)
+        self.assertIsNone(result.rows[1].normalized_values.interface_depths[1].depth)
+        self.assertIsNone(result.rows[2].normalized_values.interface_depths[0].depth)
+        self.assertIsNone(result.rows[2].normalized_values.interface_depths[1].depth)
 
     def test_gpr_upload_requires_import_metadata(self) -> None:
         upload_file = self._make_upload_file(

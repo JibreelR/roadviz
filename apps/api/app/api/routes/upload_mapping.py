@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.dependencies import (
     get_mapping_definition_service,
@@ -16,7 +16,11 @@ from app.gpr_imports.service import GprImportConfigurationError
 from app.mapping_definitions.schemas import MappingDefinition
 from app.mapping_definitions.service import MappingDefinitionService
 from app.normalization.repository import NormalizedUploadRepository
-from app.normalization.schemas import NormalizationRunSummary, NormalizedResultSet
+from app.normalization.schemas import (
+    NormalizationRunSummary,
+    NormalizedIssueSummary,
+    NormalizedResultSet,
+)
 from app.normalization.service import NormalizationError, UploadNormalizationService
 from app.parsing.service import UploadParseError, UploadParsingService
 from app.upload_mappings.repository import UploadMappingRepository
@@ -195,16 +199,50 @@ def normalize_upload(
 )
 def get_normalized_upload(
     upload_id: UUID,
+    limit: int = Query(default=0, ge=0, le=500),
+    offset: int = Query(default=0, ge=0),
     upload_repository: UploadRepository = Depends(get_upload_repository),
+    upload_mapping_repository: UploadMappingRepository = Depends(get_upload_mapping_repository),
+    definition_service: MappingDefinitionService = Depends(get_mapping_definition_service),
+    parsing_service: UploadParsingService = Depends(get_upload_parsing_service),
     normalized_upload_repository: NormalizedUploadRepository = Depends(
         get_normalized_upload_repository
     ),
 ) -> NormalizedResultSet:
-    read_upload_or_404(upload_id, upload_repository)
-    normalized_result = normalized_upload_repository.get(upload_id)
+    upload = read_upload_or_404(upload_id, upload_repository)
+    normalized_result = normalized_upload_repository.get(
+        upload_id,
+        limit=limit,
+        offset=offset,
+    )
     if normalized_result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Normalized results not found. Run normalization for this upload first.",
         )
-    return normalized_result
+
+    saved_mapping = upload_mapping_repository.get(upload_id)
+    issue_summary: NormalizedIssueSummary | None = None
+    if saved_mapping is not None and saved_mapping.is_saved:
+        validation = UploadMappingService(
+            definition_service,
+            upload_repository,
+            parsing_service,
+        ).validate_mapping(upload, saved_mapping)
+        errors = [issue.model_copy(deep=True) for issue in validation.issues if issue.severity == "error"]
+        warnings = [
+            issue.model_copy(deep=True) for issue in validation.issues if issue.severity == "warning"
+        ]
+        issue_summary = NormalizedIssueSummary(
+            error_count=len(errors),
+            warning_count=len(warnings),
+            errors=errors,
+            warnings=warnings,
+        )
+
+    return normalized_result.model_copy(
+        update={
+            "issue_summary": issue_summary,
+        },
+        deep=True,
+    )

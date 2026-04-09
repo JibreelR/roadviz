@@ -215,7 +215,7 @@ class UploadNormalizationService:
             GprNormalizedInterfaceDepth(
                 interface_number=interface_number,
                 interface_label=config.interface_label(interface_number),
-                depth=self._require_float(
+                depth=self._optional_float(
                     mapped_values,
                     interface_depth_field_key(interface_number),
                     row_index,
