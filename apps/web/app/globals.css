@@ -481,6 +481,23 @@ textarea:focus {
   font-weight: 700;
 }
 
+.next-step-callout {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(45, 106, 79, 0.24);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(45, 106, 79, 0.08), rgba(255, 255, 255, 0.82)),
+    rgba(255, 255, 255, 0.82);
+}
+
+.next-step-callout-secondary {
+  margin-top: 0.25rem;
+}
+
 .status-group,
 .chip-row,
 .mapping-value-stack,
@@ -549,7 +566,8 @@ textarea:focus {
   .context-banner,
   .section-heading,
   .form-grid,
-  .message-action-row {
+  .message-action-row,
+  .next-step-callout {
     grid-template-columns: 1fr;
   }
 
@@ -558,7 +576,8 @@ textarea:focus {
     align-items: flex-start;
   }
 
-  .message-action-row {
+  .message-action-row,
+  .next-step-callout {
     display: grid;
   }
 

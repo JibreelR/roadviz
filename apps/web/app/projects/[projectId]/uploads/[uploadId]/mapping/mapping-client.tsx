@@ -13,7 +13,7 @@ import {
   type ColumnMappingAssignment,
   type MappingDefinition,
   type MappingValidationResult,
-  type NormalizationRunSummary,
+  type NormalizedResultSet,
   type NormalizedUploadRow,
   type UploadMappingState,
   type UploadPreview,
@@ -163,7 +163,7 @@ export default function MappingClient({
   const [mappingState, setMappingState] = useState<UploadMappingState | null>(null);
   const [validation, setValidation] = useState<MappingValidationResult | null>(null);
   const [normalizationSummary, setNormalizationSummary] =
-    useState<NormalizationRunSummary | null>(null);
+    useState<NormalizedResultSet | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
@@ -177,7 +177,7 @@ export default function MappingClient({
   useEffect(() => {
     const controller = new AbortController();
 
-    async function loadExistingNormalizationResult(): Promise<NormalizationRunSummary | null> {
+    async function loadExistingNormalizationResult(): Promise<NormalizedResultSet | null> {
       try {
         return await getNormalizedUpload(uploadId, controller.signal);
       } catch (error) {
@@ -307,6 +307,18 @@ export default function MappingClient({
     !hasUnsavedChanges &&
     validation?.is_valid === true &&
     !isNormalizing;
+  const normalizationIssueSummary = normalizationSummary?.issue_summary ?? null;
+  const normalizationErrorCount =
+    normalizationIssueSummary?.error_count ?? validationErrors.length;
+  const normalizationWarningCount =
+    normalizationIssueSummary?.warning_count ?? validationWarnings.length;
+  const normalizationIssues =
+    normalizationIssueSummary === null
+      ? validation?.issues ?? []
+      : [
+          ...normalizationIssueSummary.errors,
+          ...normalizationIssueSummary.warnings,
+        ];
 
   function handleAssignmentChange(sourceColumn: string, canonicalField: string) {
     setMappingState((current) => {
@@ -418,9 +430,12 @@ export default function MappingClient({
       setIsNormalizing(true);
       setErrorMessage(null);
       setNormalizationError(null);
-      const result = await normalizeUpload(uploadId);
+      await normalizeUpload(uploadId);
+      const result = await getNormalizedUpload(uploadId);
       setNormalizationSummary(result);
-      setSuccessMessage("Normalization completed for this upload.");
+      setSuccessMessage(
+        "Normalization completed. Review the summary and preview rows below.",
+      );
     } catch (error) {
       setNormalizationError(
         error instanceof Error
@@ -465,6 +480,16 @@ export default function MappingClient({
   const normalizationPreviewRows = normalizationSummary?.preview_rows ?? [];
   const showGpsGuidance =
     preview.upload.data_type === "gpr" && (!hasLatitudeMapping || !hasLongitudeMapping);
+  const normalizeGuidance =
+    normalizationSummary !== null
+      ? `Last normalized ${formatTimestamp(normalizationSummary.normalized_at)}`
+      : !mappingState.is_saved
+        ? "Save the mapping before normalization."
+        : hasUnsavedChanges
+          ? "Save mapping updates before normalization."
+          : validation?.is_valid
+            ? "Validation passed. Next step: normalize this upload."
+            : "Run validation and resolve any errors before normalization.";
 
   return (
     <div className="stack-lg">
@@ -887,6 +912,27 @@ export default function MappingClient({
                 ))}
               </div>
             )}
+
+            {validation.is_valid ? (
+              <div className="next-step-callout">
+                <div className="stack-sm">
+                  <div className="table-primary">Next step: Normalize this upload</div>
+                  <p className="inline-note">
+                    {canNormalize
+                      ? "The mapping passed validation. Run normalization now to generate RoadViz-ready rows and preview the normalized output."
+                      : "Validation passed for the current selections. Save the mapping if needed to enable normalization."}
+                  </p>
+                </div>
+                <button
+                  className="button-primary"
+                  type="button"
+                  onClick={handleNormalizeUpload}
+                  disabled={!canNormalize}
+                >
+                  {isNormalizing ? "Normalizing..." : "Normalize upload"}
+                </button>
+              </div>
+            ) : null}
           </div>
         )}
       </section>
@@ -895,11 +941,11 @@ export default function MappingClient({
         <div className="section-heading">
           <div>
             <p className="eyebrow">Normalize</p>
-            <h2>Run and review normalized rows</h2>
+            <h2>Normalize and review results</h2>
           </div>
           <p className="section-copy">
-            Normalization applies the saved mapping to each parsed row and shows a
-            compact preview of the RoadViz-ready output.
+            Once validation passes, normalize the upload to generate RoadViz-ready rows,
+            confirm row counts, and review a compact preview of the stored result.
           </p>
         </div>
 
@@ -910,28 +956,40 @@ export default function MappingClient({
             onClick={handleNormalizeUpload}
             disabled={!canNormalize}
           >
-            {isNormalizing ? "Normalizing..." : "Run normalization"}
+            {isNormalizing ? "Normalizing..." : "Normalize upload"}
           </button>
           <p className="inline-note">
-            {normalizationSummary !== null
-              ? `Last normalized ${formatTimestamp(normalizationSummary.normalized_at)}`
-              : !mappingState.is_saved
-                ? "Save the mapping before normalization."
-                : hasUnsavedChanges
-                  ? "Save mapping updates before normalization."
-                  : validation?.is_valid
-                    ? "This upload is ready to normalize."
-                    : "Run validation and resolve any errors before normalization."}
+            {normalizeGuidance}
           </p>
         </div>
 
         {normalizationError ? <p className="message error">{normalizationError}</p> : null}
 
         {normalizationSummary === null ? (
-          <p className="empty-state">
-            No normalization results yet. Once validation passes, run normalization to
-            review row counts and normalized sample rows.
-          </p>
+          canNormalize ? (
+            <div className="next-step-callout next-step-callout-secondary">
+              <div className="stack-sm">
+                <div className="table-primary">Ready to normalize</div>
+                <p className="inline-note">
+                  Validation passed and the saved mapping is ready. Normalize now to
+                  store the result and view the normalized summary below.
+                </p>
+              </div>
+              <button
+                className="button-primary"
+                type="button"
+                onClick={handleNormalizeUpload}
+                disabled={!canNormalize}
+              >
+                {isNormalizing ? "Normalizing..." : "Normalize upload"}
+              </button>
+            </div>
+          ) : (
+            <p className="empty-state">
+              No normalization results yet. Once validation passes, run normalization to
+              review row counts and normalized sample rows.
+            </p>
+          )
         ) : (
           <div className="stack-sm">
             <div className="summary-grid">
@@ -952,25 +1010,31 @@ export default function MappingClient({
                 </div>
               </article>
               <article className="summary-card">
-                <div className="table-secondary">Validation warnings</div>
-                <div className="table-primary">{validationWarnings.length}</div>
+                <div className="table-secondary">Warnings</div>
+                <div className="table-primary">{normalizationWarningCount}</div>
               </article>
               <article className="summary-card">
-                <div className="table-secondary">Validation errors</div>
-                <div className="table-primary">{validationErrors.length}</div>
+                <div className="table-secondary">Errors</div>
+                <div className="table-primary">{normalizationErrorCount}</div>
               </article>
             </div>
 
-            {validationWarnings.length > 0 ? (
+            {normalizationIssues.length > 0 ? (
               <div className="validation-list">
-                {validationWarnings.map((issue) => (
+                {normalizationIssues.map((issue) => (
                   <article
-                    className="validation-item validation-warning"
-                    key={`normalization-warning-${issue.code}-${issue.source_column ?? ""}`}
+                    className={`validation-item validation-${issue.severity}`}
+                    key={`normalization-issue-${issue.code}-${issue.source_column ?? ""}-${issue.canonical_field ?? ""}`}
                   >
                     <div className="template-card-header">
                       <div className="table-primary">{issue.message}</div>
-                      <span className="status-pill">warning</span>
+                      <span
+                        className={`status-pill ${
+                          issue.severity === "error" ? "status-failed" : ""
+                        }`}
+                      >
+                        {issue.severity}
+                      </span>
                     </div>
                     {(issue.source_column || issue.canonical_field) && (
                       <div className="table-secondary">
