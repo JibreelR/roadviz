@@ -7,6 +7,8 @@ from app.mapping_definitions.service import MappingDefinitionService
 from app.parsing.service import UploadParseError, UploadParsingService
 from app.upload_mappings.schemas import (
     ColumnMappingAssignment,
+    CustomFieldMapping,
+    MAX_CUSTOM_FIELD_MAPPINGS,
     MappingValidationIssue,
     MappingValidationResult,
     UploadMappingState,
@@ -73,6 +75,10 @@ class UploadMappingService:
             project_id=upload.project_id,
             data_type=upload.data_type,
             assignments=assignments,
+            custom_fields=[
+                custom_field.model_copy(deep=True)
+                for custom_field in (saved_mapping.custom_fields if saved_mapping is not None else [])
+            ],
             updated_at=saved_mapping.updated_at if saved_mapping is not None else None,
             is_saved=saved_mapping is not None,
         )
@@ -109,6 +115,7 @@ class UploadMappingService:
                     for assignment in mapping_in.assignments
                     if assignment.canonical_field is not None
                 ),
+                custom_field_count=self._custom_field_count(mapping_in.custom_fields),
                 required_field_count=0,
                 satisfied_required_field_count=0,
             )
@@ -139,6 +146,12 @@ class UploadMappingService:
                         message=str(exc),
                     )
                 )
+
+        custom_field_sources = self._append_custom_field_validation(
+            mapping_in.custom_fields,
+            preview_columns,
+            issues,
+        )
 
         for assignment in mapping_in.assignments:
             if preview_columns and assignment.source_column not in preview_columns:
@@ -217,7 +230,10 @@ class UploadMappingService:
 
         if preview_columns:
             for column_name in sorted(preview_columns):
-                if assignments_by_source.get(column_name) is None:
+                if (
+                    assignments_by_source.get(column_name) is None
+                    and column_name not in custom_field_sources
+                ):
                     issues.append(
                         MappingValidationIssue(
                             code="unmapped_source_column",
@@ -242,8 +258,115 @@ class UploadMappingService:
             mapped_field_count=sum(
                 1 for assignment in mapping_in.assignments if assignment.canonical_field is not None
             ),
+            custom_field_count=self._custom_field_count(mapping_in.custom_fields),
             required_field_count=required_field_count,
             satisfied_required_field_count=satisfied_required_field_count,
+        )
+
+    def _append_custom_field_validation(
+        self,
+        custom_fields: list[CustomFieldMapping],
+        preview_columns: set[str],
+        issues: list[MappingValidationIssue],
+    ) -> set[str]:
+        used_custom_fields = [
+            custom_field
+            for custom_field in custom_fields
+            if custom_field.source_column is not None
+            or custom_field.custom_field_name is not None
+        ]
+        valid_custom_sources: set[str] = set()
+
+        if len(used_custom_fields) > MAX_CUSTOM_FIELD_MAPPINGS:
+            issues.append(
+                MappingValidationIssue(
+                    code="too_many_custom_fields",
+                    severity=ValidationSeverity.ERROR,
+                    message=(
+                        f"Custom field mapping supports up to "
+                        f"{MAX_CUSTOM_FIELD_MAPPINGS} fields per upload."
+                    ),
+                )
+            )
+
+        names_seen: dict[str, str] = {}
+        sources_seen: set[str] = set()
+        for custom_field in used_custom_fields:
+            source_column = custom_field.source_column
+            custom_field_name = custom_field.custom_field_name
+
+            if source_column is None or custom_field_name is None:
+                issues.append(
+                    MappingValidationIssue(
+                        code="incomplete_custom_field",
+                        severity=ValidationSeverity.ERROR,
+                        message=(
+                            "Each custom field mapping must include both a source "
+                            "column and a custom field name."
+                        ),
+                        source_column=source_column,
+                        custom_field_name=custom_field_name,
+                    )
+                )
+                continue
+
+            if preview_columns and source_column not in preview_columns:
+                issues.append(
+                    MappingValidationIssue(
+                        code="unknown_custom_source_column",
+                        severity=ValidationSeverity.ERROR,
+                        message=(
+                            f"Custom field source column '{source_column}' is not "
+                            "available in the current upload preview."
+                        ),
+                        source_column=source_column,
+                        custom_field_name=custom_field_name,
+                    )
+                )
+
+            if source_column in sources_seen:
+                issues.append(
+                    MappingValidationIssue(
+                        code="duplicate_custom_source_column",
+                        severity=ValidationSeverity.ERROR,
+                        message=(
+                            f"Custom field source column '{source_column}' is "
+                            "already preserved by another custom field."
+                        ),
+                        source_column=source_column,
+                        custom_field_name=custom_field_name,
+                    )
+                )
+            sources_seen.add(source_column)
+
+            normalized_name = custom_field_name.casefold()
+            existing_name = names_seen.get(normalized_name)
+            if existing_name is not None:
+                issues.append(
+                    MappingValidationIssue(
+                        code="duplicate_custom_field_name",
+                        severity=ValidationSeverity.ERROR,
+                        message=(
+                            f"Custom field name '{custom_field_name}' is already "
+                            "used in this upload mapping."
+                        ),
+                        source_column=source_column,
+                        custom_field_name=custom_field_name,
+                    )
+                )
+            else:
+                names_seen[normalized_name] = custom_field_name
+
+            valid_custom_sources.add(source_column)
+
+        return valid_custom_sources
+
+    def _custom_field_count(self, custom_fields: list[CustomFieldMapping]) -> int:
+        return sum(
+            1
+            for custom_field in custom_fields
+            if custom_field.source_column is not None
+            and custom_field.custom_field_name is not None
         )
 
     def _parse_upload(self, upload: Upload):

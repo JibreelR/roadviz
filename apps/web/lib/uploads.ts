@@ -78,11 +78,17 @@ export type ColumnMappingAssignment = {
   canonical_field: string | null;
 };
 
+export type CustomFieldMapping = {
+  source_column: string | null;
+  custom_field_name: string | null;
+};
+
 export type UploadMappingState = {
   upload_id: string;
   project_id: string;
   data_type: DataType;
   assignments: ColumnMappingAssignment[];
+  custom_fields: CustomFieldMapping[];
   updated_at: string | null;
   is_saved: boolean;
 };
@@ -95,6 +101,7 @@ export type MappingValidationIssue = {
   message: string;
   source_column: string | null;
   canonical_field: string | null;
+  custom_field_name: string | null;
 };
 
 export type MappingValidationResult = {
@@ -103,6 +110,7 @@ export type MappingValidationResult = {
   is_valid: boolean;
   issues: MappingValidationIssue[];
   mapped_field_count: number;
+  custom_field_count: number;
   required_field_count: number;
   satisfied_required_field_count: number;
 };
@@ -153,6 +161,7 @@ type NormalizedRowBase = {
   row_index: number;
   source_row: Record<string, string | null>;
   mapped_values: Record<string, string | null>;
+  custom_fields: Record<string, string | null>;
 };
 
 export type GprNormalizedRow = NormalizedRowBase & {
@@ -334,22 +343,30 @@ export async function getUploadMapping(
 export async function saveUploadMapping(input: {
   uploadId: string;
   assignments: ColumnMappingAssignment[];
+  customFields: CustomFieldMapping[];
 }): Promise<UploadMappingState> {
   return requestJson<UploadMappingState>(`/uploads/${input.uploadId}/mapping`, {
     method: "POST",
-    body: JSON.stringify({ assignments: input.assignments }),
+    body: JSON.stringify({
+      assignments: input.assignments,
+      custom_fields: input.customFields,
+    }),
   });
 }
 
 export async function validateUploadMapping(input: {
   uploadId: string;
   assignments: ColumnMappingAssignment[];
+  customFields?: CustomFieldMapping[];
 }): Promise<MappingValidationResult> {
   return requestJson<MappingValidationResult>(
     `/uploads/${input.uploadId}/validate-mapping`,
     {
       method: "POST",
-      body: JSON.stringify({ assignments: input.assignments }),
+      body: JSON.stringify({
+        assignments: input.assignments,
+        custom_fields: input.customFields ?? [],
+      }),
     },
   );
 }

@@ -11,6 +11,7 @@ import {
   saveUploadMapping,
   validateUploadMapping,
   type ColumnMappingAssignment,
+  type CustomFieldMapping,
   type MappingDefinition,
   type MappingValidationResult,
   type NormalizedResultSet,
@@ -18,6 +19,8 @@ import {
   type UploadMappingState,
   type UploadPreview,
 } from "../../../../../../lib/uploads";
+
+const MAX_CUSTOM_FIELDS = 10;
 
 function formatTimestamp(timestamp: string): string {
   return new Intl.DateTimeFormat("en-US", {
@@ -41,12 +44,21 @@ function buildConfiguredLabels(
   }));
 }
 
-function buildAssignmentsSignature(assignments: ColumnMappingAssignment[]): string {
+function buildMappingSignature(
+  assignments: ColumnMappingAssignment[],
+  customFields: CustomFieldMapping[],
+): string {
   return JSON.stringify(
-    assignments.map((assignment) => [
-      assignment.source_column,
-      assignment.canonical_field,
-    ]),
+    {
+      assignments: assignments.map((assignment) => [
+        assignment.source_column,
+        assignment.canonical_field,
+      ]),
+      customFields: customFields.map((customField) => [
+        customField.source_column,
+        customField.custom_field_name,
+      ]),
+    },
   );
 }
 
@@ -151,6 +163,15 @@ function buildNormalizedPreviewEntries(
   ];
 }
 
+function buildCustomFieldPreviewEntries(
+  row: NormalizedUploadRow,
+): Array<{ label: string; value: string }> {
+  return Object.entries(row.custom_fields ?? {}).map(([label, value]) => ({
+    label,
+    value: formatOptionalValue(value),
+  }));
+}
+
 export default function MappingClient({
   projectId,
   uploadId,
@@ -203,6 +224,7 @@ export default function MappingClient({
           validateUploadMapping({
             uploadId,
             assignments: loadedMapping.assignments,
+            customFields: loadedMapping.custom_fields,
           }),
           loadExistingNormalizationResult(),
         ]);
@@ -213,7 +235,10 @@ export default function MappingClient({
         setValidation(loadedValidation);
         setNormalizationSummary(loadedNormalizationResult);
         setSavedAssignmentsSignature(
-          buildAssignmentsSignature(loadedMapping.assignments),
+          buildMappingSignature(
+            loadedMapping.assignments,
+            loadedMapping.custom_fields,
+          ),
         );
       } catch (error) {
         if (!controller.signal.aborted) {
@@ -249,7 +274,12 @@ export default function MappingClient({
   }, [mappingState]);
   const currentAssignmentsSignature = useMemo(
     () =>
-      mappingState ? buildAssignmentsSignature(mappingState.assignments) : null,
+      mappingState
+        ? buildMappingSignature(
+            mappingState.assignments,
+            mappingState.custom_fields,
+          )
+        : null,
     [mappingState],
   );
 
@@ -324,6 +354,8 @@ export default function MappingClient({
     : normalizationSummary
       ? "Run normalization again"
       : "Normalize upload";
+  const canAddCustomField =
+    (mappingState?.custom_fields.length ?? 0) < MAX_CUSTOM_FIELDS;
 
   function handleAssignmentChange(sourceColumn: string, canonicalField: string) {
     setMappingState((current) => {
@@ -349,6 +381,73 @@ export default function MappingClient({
     setNormalizationError(null);
   }
 
+  function handleAddCustomField() {
+    setMappingState((current) => {
+      if (current === null || current.custom_fields.length >= MAX_CUSTOM_FIELDS) {
+        return current;
+      }
+
+      return {
+        ...current,
+        custom_fields: [
+          ...current.custom_fields,
+          {
+            source_column: null,
+            custom_field_name: null,
+          },
+        ],
+      };
+    });
+    setSuccessMessage(null);
+    setValidation(null);
+    setNormalizationSummary(null);
+    setNormalizationError(null);
+  }
+
+  function handleCustomFieldChange(
+    index: number,
+    updates: Partial<CustomFieldMapping>,
+  ) {
+    setMappingState((current) => {
+      if (current === null) {
+        return current;
+      }
+
+      return {
+        ...current,
+        custom_fields: current.custom_fields.map((customField, customIndex) =>
+          customIndex === index
+            ? {
+                ...customField,
+                ...updates,
+              }
+            : customField,
+        ),
+      };
+    });
+    setSuccessMessage(null);
+    setValidation(null);
+    setNormalizationSummary(null);
+    setNormalizationError(null);
+  }
+
+  function handleRemoveCustomField(index: number) {
+    setMappingState((current) => {
+      if (current === null) {
+        return current;
+      }
+
+      return {
+        ...current,
+        custom_fields: current.custom_fields.filter((_, customIndex) => customIndex !== index),
+      };
+    });
+    setSuccessMessage(null);
+    setValidation(null);
+    setNormalizationSummary(null);
+    setNormalizationError(null);
+  }
+
   async function handleSaveMapping() {
     if (mappingState === null) {
       return;
@@ -361,13 +460,17 @@ export default function MappingClient({
       const savedMapping = await saveUploadMapping({
         uploadId,
         assignments: mappingState.assignments,
+        customFields: mappingState.custom_fields,
       });
       const savedValidation = await validateUploadMapping({
         uploadId,
         assignments: savedMapping.assignments,
+        customFields: savedMapping.custom_fields,
       });
       setMappingState(savedMapping);
-      setSavedAssignmentsSignature(buildAssignmentsSignature(savedMapping.assignments));
+      setSavedAssignmentsSignature(
+        buildMappingSignature(savedMapping.assignments, savedMapping.custom_fields),
+      );
       setValidation(savedValidation);
       setNormalizationSummary(null);
       setSuccessMessage(
@@ -396,6 +499,7 @@ export default function MappingClient({
       const result = await validateUploadMapping({
         uploadId,
         assignments: mappingState.assignments,
+        customFields: mappingState.custom_fields,
       });
       setValidation(result);
       setSuccessMessage(
@@ -815,6 +919,100 @@ export default function MappingClient({
           </table>
         </div>
 
+        <div className="custom-fields-section">
+          <div className="custom-fields-header">
+            <div>
+              <div className="table-primary">Optional preserved custom fields</div>
+              <p className="inline-note">
+                Preserve extra source columns such as dielectric, velocity, or
+                amplitude for later visualization and analysis.
+              </p>
+              <p className="inline-note">
+                A source column may also be mapped canonically above. Within this
+                custom list, use each source column and display name once.
+              </p>
+            </div>
+            <button
+              className="button-secondary"
+              type="button"
+              onClick={handleAddCustomField}
+              disabled={!canAddCustomField}
+            >
+              Add custom field
+            </button>
+          </div>
+
+          {mappingState.custom_fields.length === 0 ? (
+            <p className="empty-state">
+              No custom fields are preserved yet. Add one only when the source
+              file includes extra columns worth keeping outside the canonical
+              RoadViz fields.
+            </p>
+          ) : (
+            <div className="table-shell">
+              <table className="projects-table custom-fields-table">
+                <thead>
+                  <tr>
+                    <th>Source column</th>
+                    <th>Custom display name</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mappingState.custom_fields.map((customField, index) => (
+                    <tr key={`custom-field-${index}`}>
+                      <td className="mapping-select-cell">
+                        <select
+                          value={customField.source_column ?? ""}
+                          onChange={(event) =>
+                            handleCustomFieldChange(index, {
+                              source_column: event.target.value || null,
+                            })
+                          }
+                        >
+                          <option value="">Select source column</option>
+                          {preview.source_columns.map((column) => (
+                            <option key={column.name} value={column.name}>
+                              {column.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="custom-field-name-cell">
+                        <input
+                          type="text"
+                          value={customField.custom_field_name ?? ""}
+                          onChange={(event) =>
+                            handleCustomFieldChange(index, {
+                              custom_field_name: event.target.value || null,
+                            })
+                          }
+                          placeholder="Display name"
+                          maxLength={100}
+                        />
+                      </td>
+                      <td>
+                        <button
+                          className="button-secondary button-inline"
+                          type="button"
+                          onClick={() => handleRemoveCustomField(index)}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <p className="inline-note">
+            {mappingState.custom_fields.length} of {MAX_CUSTOM_FIELDS} custom
+            field slots used.
+          </p>
+        </div>
+
         <div className="form-actions">
           <button
             className="button-primary"
@@ -900,6 +1098,10 @@ export default function MappingClient({
                 <div className="table-secondary">Mapped columns</div>
                 <div className="table-primary">{validation.mapped_field_count}</div>
               </article>
+              <article className="summary-card">
+                <div className="table-secondary">Custom fields</div>
+                <div className="table-primary">{validation.custom_field_count}</div>
+              </article>
             </div>
 
             <div className="validation-summary">
@@ -938,9 +1140,9 @@ export default function MappingClient({
                         {issue.severity}
                       </span>
                     </div>
-                    {(issue.source_column || issue.canonical_field) && (
+                    {(issue.source_column || issue.canonical_field || issue.custom_field_name) && (
                       <div className="table-secondary">
-                        {[issue.source_column, issue.canonical_field]
+                        {[issue.source_column, issue.canonical_field, issue.custom_field_name]
                           .filter(Boolean)
                           .join(" | ")}
                       </div>
@@ -1071,9 +1273,9 @@ export default function MappingClient({
                         {issue.severity}
                       </span>
                     </div>
-                    {(issue.source_column || issue.canonical_field) && (
+                    {(issue.source_column || issue.canonical_field || issue.custom_field_name) && (
                       <div className="table-secondary">
-                        {[issue.source_column, issue.canonical_field]
+                        {[issue.source_column, issue.canonical_field, issue.custom_field_name]
                           .filter(Boolean)
                           .join(" | ")}
                       </div>
@@ -1104,26 +1306,49 @@ export default function MappingClient({
                 </p>
               ) : (
                 <div className="template-grid">
-                  {normalizationPreviewRows.map((row) => (
-                    <article className="definition-card" key={`normalized-row-${row.row_index}`}>
-                      <div className="template-card-header">
-                        <div>
-                          <div className="table-primary">Row {row.row_index}</div>
-                          <div className="table-secondary">
-                            {row.data_type.toUpperCase()} normalized values
+                  {normalizationPreviewRows.map((row) => {
+                    const customEntries = buildCustomFieldPreviewEntries(row);
+
+                    return (
+                      <article className="definition-card" key={`normalized-row-${row.row_index}`}>
+                        <div className="template-card-header">
+                          <div>
+                            <div className="table-primary">Row {row.row_index}</div>
+                            <div className="table-secondary">
+                              {row.data_type.toUpperCase()} normalized values
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="preview-key-value-grid">
-                        {buildNormalizedPreviewEntries(row).map((entry) => (
-                          <div className="preview-key-value" key={`${row.row_index}-${entry.label}`}>
-                            <div className="table-secondary">{entry.label}</div>
-                            <div className="table-primary">{entry.value}</div>
+                        <div className="preview-key-value-grid">
+                          {buildNormalizedPreviewEntries(row).map((entry) => (
+                            <div
+                              className="preview-key-value"
+                              key={`${row.row_index}-${entry.label}`}
+                            >
+                              <div className="table-secondary">{entry.label}</div>
+                              <div className="table-primary">{entry.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {customEntries.length > 0 ? (
+                          <div className="custom-preview-block">
+                            <div className="table-primary">Preserved custom fields</div>
+                            <div className="preview-key-value-grid">
+                              {customEntries.map((entry) => (
+                                <div
+                                  className="preview-key-value"
+                                  key={`${row.row_index}-custom-${entry.label}`}
+                                >
+                                  <div className="table-secondary">{entry.label}</div>
+                                  <div className="table-primary">{entry.value}</div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    </article>
-                  ))}
+                        ) : null}
+                      </article>
+                    );
+                  })}
                 </div>
               )}
             </div>

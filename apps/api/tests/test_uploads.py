@@ -601,6 +601,160 @@ class UploadFoundationTests(unittest.TestCase):
         self.assertIsNone(result.rows[2].normalized_values.interface_depths[0].depth)
         self.assertIsNone(result.rows[2].normalized_values.interface_depths[1].depth)
 
+    def test_custom_fields_validate_and_normalize_separately(self) -> None:
+        created_upload = self._create_upload(
+            data_type=DataType.GPR,
+            filename="gpr-extra-export-columns.csv",
+            content=(
+                b"distance_ft,depth_surface,dielectric,amplitude\n"
+                b"0,1.5,5.2,12\n"
+                b"25,1.6,,13\n"
+            ),
+            notes="GPR export with useful extra columns.",
+            gpr_config=self._default_gpr_config(
+                file_identifier="Lane 5",
+                channel_count=1,
+                interface_count=1,
+                interface_labels={1: "Surface"},
+            ),
+        )
+        saved_mapping = save_upload_mapping(
+            created_upload.id,
+            UploadMappingWrite(
+                assignments=[
+                    {"source_column": "distance_ft", "canonical_field": "distance"},
+                    {
+                        "source_column": "depth_surface",
+                        "canonical_field": "interface_depth_1",
+                    },
+                ],
+                custom_fields=[
+                    {
+                        "source_column": "dielectric",
+                        "custom_field_name": "Dielectric",
+                    },
+                    {
+                        "source_column": "amplitude",
+                        "custom_field_name": "Amplitude",
+                    },
+                ],
+            ),
+            self.upload_repository,
+            self.upload_mapping_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+        )
+
+        validation = validate_upload_mapping(
+            created_upload.id,
+            UploadMappingWrite(
+                assignments=saved_mapping.assignments,
+                custom_fields=saved_mapping.custom_fields,
+            ),
+            self.upload_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+        )
+        summary = normalize_upload(
+            created_upload.id,
+            self.upload_repository,
+            self.upload_mapping_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+            self.normalized_upload_repository,
+        )
+        result = get_normalized_upload(
+            created_upload.id,
+            2,
+            0,
+            self.upload_repository,
+            self.upload_mapping_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+            self.normalized_upload_repository,
+        )
+
+        self.assertTrue(validation.is_valid)
+        self.assertEqual(validation.custom_field_count, 2)
+        self.assertFalse(
+            any(
+                issue.code == "unmapped_source_column"
+                and issue.source_column in {"dielectric", "amplitude"}
+                for issue in validation.issues
+            )
+        )
+        self.assertEqual(summary.preview_rows[0].custom_fields["Dielectric"], "5.2")
+        self.assertEqual(result.rows[0].custom_fields["Dielectric"], "5.2")
+        self.assertEqual(result.rows[0].custom_fields["Amplitude"], "12")
+        self.assertIsNone(result.rows[1].custom_fields["Dielectric"])
+        self.assertEqual(result.rows[1].custom_fields["Amplitude"], "13")
+        self.assertNotIn("Dielectric", result.rows[0].mapped_values)
+
+    def test_custom_field_validation_flags_invalid_custom_rows(self) -> None:
+        created_upload = self._create_upload(
+            data_type=DataType.CORE,
+            filename="core-extra-columns.csv",
+            content=(
+                b"sample_id,sta,thickness_in,lane_name,material,velocity,amplitude\n"
+                b"C-22,145+50,9.5,Outside,HMA,4.2,11\n"
+            ),
+            notes="Core import with extra columns.",
+        )
+
+        validation = validate_upload_mapping(
+            created_upload.id,
+            UploadMappingWrite(
+                assignments=[
+                    {"source_column": "sample_id", "canonical_field": "core_id"},
+                    {"source_column": "sta", "canonical_field": "station"},
+                    {
+                        "source_column": "thickness_in",
+                        "canonical_field": "total_thickness_in",
+                    },
+                    {"source_column": "lane_name", "canonical_field": "lane"},
+                ],
+                custom_fields=[
+                    {
+                        "source_column": "lane_name",
+                        "custom_field_name": "Lane Export",
+                    },
+                    {
+                        "source_column": "material",
+                        "custom_field_name": "Vendor Value",
+                    },
+                    {
+                        "source_column": "velocity",
+                        "custom_field_name": "vendor value",
+                    },
+                    {
+                        "source_column": "material",
+                        "custom_field_name": "Material Copy",
+                    },
+                    {
+                        "source_column": "unknown_extra",
+                        "custom_field_name": "Unknown Extra",
+                    },
+                    {"source_column": "amplitude"},
+                    {"source_column": "velocity", "custom_field_name": "Velocity 2"},
+                    {"source_column": "amplitude", "custom_field_name": "Amplitude 2"},
+                    {"source_column": "material", "custom_field_name": "Material 2"},
+                    {"source_column": "lane_name", "custom_field_name": "Lane 2"},
+                    {"source_column": "sta", "custom_field_name": "Station Copy"},
+                ],
+            ),
+            self.upload_repository,
+            self.mapping_definition_service,
+            self.parsing_service,
+        )
+
+        issue_codes = {issue.code for issue in validation.issues}
+        self.assertFalse(validation.is_valid)
+        self.assertIn("too_many_custom_fields", issue_codes)
+        self.assertIn("duplicate_custom_field_name", issue_codes)
+        self.assertIn("duplicate_custom_source_column", issue_codes)
+        self.assertIn("unknown_custom_source_column", issue_codes)
+        self.assertIn("incomplete_custom_field", issue_codes)
+
     def test_gpr_upload_requires_import_metadata(self) -> None:
         upload_file = self._make_upload_file(
             "gpr-missing-config.csv",

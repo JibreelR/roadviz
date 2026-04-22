@@ -49,6 +49,9 @@ class InMemoryUploadMappingRepository:
             project_id=project_id,
             data_type=data_type,
             assignments=[assignment.model_copy(deep=True) for assignment in mapping_in.assignments],
+            custom_fields=[
+                custom_field.model_copy(deep=True) for custom_field in mapping_in.custom_fields
+            ],
             updated_at=utc_now(),
             is_saved=True,
         )

@@ -545,6 +545,34 @@ textarea:focus {
   min-width: 240px;
 }
 
+.custom-fields-section {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.custom-fields-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.custom-fields-table {
+  min-width: 720px;
+}
+
+.custom-field-name-cell input {
+  min-width: 240px;
+}
+
+.custom-preview-block {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+}
+
 .validation-summary {
   display: flex;
   gap: 0.9rem;
@@ -588,6 +616,7 @@ textarea:focus {
 
   .context-banner,
   .section-heading,
+  .custom-fields-header,
   .form-grid,
   .message-action-row,
   .normalization-header,
@@ -601,6 +630,7 @@ textarea:focus {
   }
 
   .message-action-row,
+  .custom-fields-header,
   .normalization-header,
   .next-step-callout {
     display: grid;
@@ -612,5 +642,9 @@ textarea:focus {
 
   .mapping-table {
     min-width: 860px;
+  }
+
+  .custom-fields-table {
+    min-width: 720px;
   }
 }

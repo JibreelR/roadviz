@@ -112,6 +112,12 @@ class UploadNormalizationService:
             for assignment in mapping.assignments
             if assignment.canonical_field is not None
         }
+        custom_field_sources = {
+            custom_field.custom_field_name: custom_field.source_column
+            for custom_field in mapping.custom_fields
+            if custom_field.source_column is not None
+            and custom_field.custom_field_name is not None
+        }
 
         normalized_rows: list[NormalizedUploadRow] = []
         for row_index, source_row in enumerate(parsed_rows, start=1):
@@ -119,12 +125,19 @@ class UploadNormalizationService:
                 field_key: source_row.get(source_column)
                 for field_key, source_column in field_sources.items()
             }
+            custom_fields = {
+                custom_field_name: self._normalize_custom_value(
+                    source_row.get(source_column)
+                )
+                for custom_field_name, source_column in custom_field_sources.items()
+            }
             normalized_rows.append(
                 self._normalize_row(
                     upload=upload,
                     row_index=row_index,
                     source_row=source_row,
                     mapped_values=mapped_values,
+                    custom_fields=custom_fields,
                 )
             )
 
@@ -136,6 +149,7 @@ class UploadNormalizationService:
         row_index: int,
         source_row: dict[str, str | None],
         mapped_values: dict[str, str | None],
+        custom_fields: dict[str, str | None],
     ) -> NormalizedUploadRow:
         if upload.data_type == DataType.GPR:
             return self._normalize_gpr_row(
@@ -143,6 +157,7 @@ class UploadNormalizationService:
                 row_index=row_index,
                 source_row=source_row,
                 mapped_values=mapped_values,
+                custom_fields=custom_fields,
             )
         if upload.data_type == DataType.CORE:
             return CoreNormalizedRow(
@@ -150,6 +165,7 @@ class UploadNormalizationService:
                 row_index=row_index,
                 source_row=source_row,
                 mapped_values=mapped_values,
+                custom_fields=custom_fields,
                 normalized_values=CoreNormalizedValues(
                     core_id=self._require_text(mapped_values, "core_id", row_index),
                     station=self._require_text(mapped_values, "station", row_index),
@@ -166,6 +182,7 @@ class UploadNormalizationService:
                 row_index=row_index,
                 source_row=source_row,
                 mapped_values=mapped_values,
+                custom_fields=custom_fields,
                 normalized_values=FwdNormalizedValues(
                     test_id=self._require_text(mapped_values, "test_id", row_index),
                     station=self._require_text(mapped_values, "station", row_index),
@@ -180,6 +197,7 @@ class UploadNormalizationService:
                 row_index=row_index,
                 source_row=source_row,
                 mapped_values=mapped_values,
+                custom_fields=custom_fields,
                 normalized_values=DcpNormalizedValues(
                     test_point_id=self._require_text(mapped_values, "test_point_id", row_index),
                     station=self._require_text(mapped_values, "station", row_index),
@@ -198,6 +216,7 @@ class UploadNormalizationService:
         row_index: int,
         source_row: dict[str, str | None],
         mapped_values: dict[str, str | None],
+        custom_fields: dict[str, str | None],
     ) -> GprNormalizedRow:
         try:
             config = self._gpr_import_service.get_config(upload)
@@ -229,6 +248,7 @@ class UploadNormalizationService:
             row_index=row_index,
             source_row=source_row,
             mapped_values=mapped_values,
+            custom_fields=custom_fields,
             normalized_values=GprNormalizedValues(
                 file_identifier=config.file_identifier,
                 scan=self._optional_float(mapped_values, "scan", row_index),
@@ -316,3 +336,9 @@ class UploadNormalizationService:
             raise NormalizationError(
                 f"Row {row_index} field '{field_key}' must be an integer value."
             ) from exc
+
+    def _normalize_custom_value(self, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None

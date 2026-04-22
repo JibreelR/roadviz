@@ -5,7 +5,7 @@ from uuid import UUID
 from psycopg.types.json import Jsonb
 
 from app.db.connection import Database
-from app.db.serialization import dump_models, load_mapping_assignments
+from app.db.serialization import dump_upload_mapping_payload, load_upload_mapping_payload
 from app.projects.schemas import utc_now
 from app.upload_mappings.schemas import UploadMappingState, UploadMappingWrite
 from app.uploads.schemas import DataType
@@ -38,12 +38,18 @@ class DatabaseUploadMappingRepository:
         if row is None:
             return None
 
+        mapping_payload = load_upload_mapping_payload(row["assignments"])
+
         return UploadMappingState.model_validate(
             {
                 **row,
                 "assignments": [
                     assignment.model_dump(mode="json")
-                    for assignment in load_mapping_assignments(row["assignments"])
+                    for assignment in mapping_payload["assignments"]
+                ],
+                "custom_fields": [
+                    custom_field.model_dump(mode="json")
+                    for custom_field in mapping_payload["custom_fields"]
                 ],
                 "is_saved": True,
             }
@@ -81,7 +87,7 @@ class DatabaseUploadMappingRepository:
                         upload_id,
                         project_id,
                         data_type.value,
-                        Jsonb(dump_models(mapping_in.assignments)),
+                        Jsonb(dump_upload_mapping_payload(mapping_in)),
                         timestamp,
                     ),
                 )
@@ -91,6 +97,9 @@ class DatabaseUploadMappingRepository:
             project_id=project_id,
             data_type=data_type,
             assignments=[assignment.model_copy(deep=True) for assignment in mapping_in.assignments],
+            custom_fields=[
+                custom_field.model_copy(deep=True) for custom_field in mapping_in.custom_fields
+            ],
             updated_at=timestamp,
             is_saved=True,
         )

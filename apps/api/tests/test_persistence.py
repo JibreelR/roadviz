@@ -136,9 +136,9 @@ class DatabasePersistenceTests(unittest.TestCase):
                 file=self._make_upload_file(
                     "normalize-gpr.csv",
                     (
-                        b"scan_no,distance_ft,depth_surface,latitude,longitude\n"
-                        b"10,0,1.5,40.1,-74.2\n"
-                        b"11,25,1.6,40.1005,-74.2005\n"
+                        b"scan_no,distance_ft,depth_surface,latitude,longitude,dielectric\n"
+                        b"10,0,1.5,40.1,-74.2,5.2\n"
+                        b"11,25,1.6,40.1005,-74.2005,\n"
                     ),
                 ),
                 gpr_file_identifier="Lane 2",
@@ -161,7 +161,13 @@ class DatabasePersistenceTests(unittest.TestCase):
                     {"source_column": "depth_surface", "canonical_field": "interface_depth_1"},
                     {"source_column": "latitude", "canonical_field": "latitude"},
                     {"source_column": "longitude", "canonical_field": "longitude"},
-                ]
+                ],
+                custom_fields=[
+                    {
+                        "source_column": "dielectric",
+                        "custom_field_name": "Dielectric",
+                    }
+                ],
             ),
             self.upload_repository,
             self.mapping_repository,
@@ -207,11 +213,15 @@ class DatabasePersistenceTests(unittest.TestCase):
         self.assertIsNotNone(persisted_mapping)
         self.assertTrue(persisted_mapping.is_saved)
         self.assertEqual(len(persisted_mapping.assignments), 5)
+        self.assertEqual(len(persisted_mapping.custom_fields), 1)
+        self.assertEqual(persisted_mapping.custom_fields[0].custom_field_name, "Dielectric")
         self.assertEqual(default_result.normalized_row_count, 2)
         self.assertEqual(default_result.rows, [])
         self.assertEqual(default_result.preview_rows[0].normalized_values.file_identifier, "Lane 2")
+        self.assertEqual(default_result.preview_rows[0].custom_fields["Dielectric"], "5.2")
         self.assertEqual(paged_result.rows[0].normalized_values.scan, 10.0)
         self.assertEqual(paged_result.rows[0].normalized_values.distance, 0.0)
+        self.assertEqual(paged_result.rows[0].custom_fields["Dielectric"], "5.2")
         self.assertEqual(
             paged_result.rows[0].normalized_values.interface_depths[0].interface_label,
             "Surface",

@@ -56,6 +56,7 @@ class NormalizedRowBase(BaseModel):
     row_index: int = Field(..., ge=1)
     source_row: dict[str, str | None] = Field(default_factory=dict)
     mapped_values: dict[str, str | None] = Field(default_factory=dict)
+    custom_fields: dict[str, str | None] = Field(default_factory=dict)
 
 
 class GprNormalizedRow(NormalizedRowBase):

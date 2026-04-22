@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.uploads.schemas import DataType
 
+MAX_CUSTOM_FIELD_MAPPINGS = 10
+
 
 class ColumnMappingAssignment(BaseModel):
     source_column: str = Field(..., min_length=1, max_length=255)
@@ -30,8 +32,30 @@ class ColumnMappingAssignment(BaseModel):
         return normalized or None
 
 
+class CustomFieldMapping(BaseModel):
+    source_column: str | None = Field(default=None, max_length=255)
+    custom_field_name: str | None = Field(default=None, max_length=100)
+
+    @field_validator("source_column")
+    @classmethod
+    def normalize_source_column(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("custom_field_name")
+    @classmethod
+    def normalize_custom_field_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
 class UploadMappingWrite(BaseModel):
     assignments: list[ColumnMappingAssignment] = Field(default_factory=list)
+    custom_fields: list[CustomFieldMapping] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_unique_source_columns(self) -> "UploadMappingWrite":
@@ -52,6 +76,7 @@ class UploadMappingState(BaseModel):
     project_id: UUID
     data_type: DataType
     assignments: list[ColumnMappingAssignment] = Field(default_factory=list)
+    custom_fields: list[CustomFieldMapping] = Field(default_factory=list)
     updated_at: datetime | None = None
     is_saved: bool = False
 
@@ -67,6 +92,7 @@ class MappingValidationIssue(BaseModel):
     message: str = Field(..., min_length=1, max_length=400)
     source_column: str | None = None
     canonical_field: str | None = None
+    custom_field_name: str | None = None
 
 
 class MappingValidationResult(BaseModel):
@@ -75,5 +101,6 @@ class MappingValidationResult(BaseModel):
     is_valid: bool
     issues: list[MappingValidationIssue] = Field(default_factory=list)
     mapped_field_count: int = 0
+    custom_field_count: int = 0
     required_field_count: int = 0
     satisfied_required_field_count: int = 0
