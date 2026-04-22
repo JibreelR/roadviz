@@ -845,6 +845,10 @@ class UploadFoundationTests(unittest.TestCase):
         self.assertIn("/uploads/{upload_id}/validate-mapping", paths)
         self.assertIn("/uploads/{upload_id}/normalize", paths)
         self.assertIn("/uploads/{upload_id}/normalized", paths)
+        self.assertIn("/uploads/{upload_id}/linear-reference-ties", paths)
+        self.assertIn("/uploads/{upload_id}/enrich", paths)
+        self.assertIn("/uploads/{upload_id}/enriched", paths)
+        self.assertIn("/uploads/{upload_id}/analyses/gpr/moving-average", paths)
 
 
 if __name__ == "__main__":

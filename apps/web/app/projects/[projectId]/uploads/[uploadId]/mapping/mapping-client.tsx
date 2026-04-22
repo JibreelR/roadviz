@@ -3,15 +3,24 @@
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  createGprMovingAverage,
+  enrichUpload,
+  getEnrichedUpload,
+  getLinearReferenceTies,
   getUploadMapping,
   getUploadMappingDefinition,
   getNormalizedUpload,
   getUploadPreview,
   normalizeUpload,
   saveUploadMapping,
+  saveLinearReferenceTies,
   validateUploadMapping,
   type ColumnMappingAssignment,
   type CustomFieldMapping,
+  type EnrichedResultSet,
+  type EnrichedUploadRow,
+  type GprMovingAverageResultSummary,
+  type LinearReferenceTieTable,
   type MappingDefinition,
   type MappingValidationResult,
   type NormalizedResultSet,
@@ -21,6 +30,17 @@ import {
 } from "../../../../../../lib/uploads";
 
 const MAX_CUSTOM_FIELDS = 10;
+
+type TieRowForm = {
+  distance: string;
+  station: string;
+  milepost: string;
+};
+
+const defaultTieRows: TieRowForm[] = [
+  { distance: "0", station: "0+00", milepost: "0" },
+  { distance: "100", station: "1+00", milepost: "0.02" },
+];
 
 function formatTimestamp(timestamp: string): string {
   return new Intl.DateTimeFormat("en-US", {
@@ -67,6 +87,17 @@ function isMissingNormalizedResultError(error: unknown): boolean {
     error instanceof Error &&
     error.message ===
       "Normalized results not found. Run normalization for this upload first."
+  );
+}
+
+function isMissingTieTableError(error: unknown): boolean {
+  return error instanceof Error && error.message === "Tie table not found.";
+}
+
+function isMissingEnrichedResultError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message === "Enriched results not found. Apply ties for this upload first."
   );
 }
 
@@ -172,6 +203,41 @@ function buildCustomFieldPreviewEntries(
   }));
 }
 
+function buildTieRowsFromTable(tieTable: LinearReferenceTieTable): TieRowForm[] {
+  return tieTable.rows.map((row) => ({
+    distance: String(row.distance),
+    station: row.station,
+    milepost: String(row.milepost),
+  }));
+}
+
+function buildEnrichedPreviewEntries(
+  row: EnrichedUploadRow,
+): Array<{ label: string; value: string }> {
+  const entries = [
+    { label: "Source row", value: String(row.source_row_index) },
+    { label: "Distance", value: String(row.distance) },
+    { label: "Station", value: row.derived_station },
+    { label: "Milepost", value: row.derived_milepost.toFixed(4) },
+    { label: "Method", value: row.linear_reference_method },
+  ];
+
+  if (row.normalized_row.data_type === "gpr") {
+    entries.push(
+      {
+        label: "Scan",
+        value: formatOptionalValue(row.normalized_row.normalized_values.scan),
+      },
+      {
+        label: "Channel",
+        value: `${row.normalized_row.normalized_values.channel_number} | ${row.normalized_row.normalized_values.channel_label}`,
+      },
+    );
+  }
+
+  return entries;
+}
+
 export default function MappingClient({
   projectId,
   uploadId,
@@ -185,13 +251,28 @@ export default function MappingClient({
   const [validation, setValidation] = useState<MappingValidationResult | null>(null);
   const [normalizationSummary, setNormalizationSummary] =
     useState<NormalizedResultSet | null>(null);
+  const [tieRows, setTieRows] = useState<TieRowForm[]>(defaultTieRows);
+  const [tieTable, setTieTable] = useState<LinearReferenceTieTable | null>(null);
+  const [enrichmentSummary, setEnrichmentSummary] =
+    useState<EnrichedResultSet | null>(null);
+  const [movingAverageSummary, setMovingAverageSummary] =
+    useState<GprMovingAverageResultSummary | null>(null);
+  const [movingAverageForm, setMovingAverageForm] = useState({
+    fieldKey: "interface_depth_1",
+    windowDistance: "50",
+    channelNumber: "",
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [isNormalizing, setIsNormalizing] = useState(false);
+  const [isSavingTies, setIsSavingTies] = useState(false);
+  const [isEnriching, setIsEnriching] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [normalizationError, setNormalizationError] = useState<string | null>(null);
+  const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
   const [savedAssignmentsSignature, setSavedAssignmentsSignature] =
     useState<string | null>(null);
 
@@ -209,24 +290,54 @@ export default function MappingClient({
       }
     }
 
+    async function loadExistingTieTable(): Promise<LinearReferenceTieTable | null> {
+      try {
+        return await getLinearReferenceTies(uploadId, controller.signal);
+      } catch (error) {
+        if (isMissingTieTableError(error)) {
+          return null;
+        }
+        throw error;
+      }
+    }
+
+    async function loadExistingEnrichedResult(): Promise<EnrichedResultSet | null> {
+      try {
+        return await getEnrichedUpload(uploadId, controller.signal);
+      } catch (error) {
+        if (isMissingEnrichedResultError(error)) {
+          return null;
+        }
+        throw error;
+      }
+    }
+
     async function loadMappingWorkspace() {
       try {
         setIsLoading(true);
         setErrorMessage(null);
         setNormalizationError(null);
+        setEnrichmentError(null);
 
         const [loadedPreview, loadedDefinition, loadedMapping] = await Promise.all([
           getUploadPreview(uploadId, controller.signal),
           getUploadMappingDefinition(uploadId, controller.signal),
           getUploadMapping(uploadId, controller.signal),
         ]);
-        const [loadedValidation, loadedNormalizationResult] = await Promise.all([
+        const [
+          loadedValidation,
+          loadedNormalizationResult,
+          loadedTieTable,
+          loadedEnrichedResult,
+        ] = await Promise.all([
           validateUploadMapping({
             uploadId,
             assignments: loadedMapping.assignments,
             customFields: loadedMapping.custom_fields,
           }),
           loadExistingNormalizationResult(),
+          loadExistingTieTable(),
+          loadExistingEnrichedResult(),
         ]);
 
         setPreview(loadedPreview);
@@ -234,6 +345,11 @@ export default function MappingClient({
         setMappingState(loadedMapping);
         setValidation(loadedValidation);
         setNormalizationSummary(loadedNormalizationResult);
+        setTieTable(loadedTieTable);
+        setTieRows(
+          loadedTieTable === null ? defaultTieRows : buildTieRowsFromTable(loadedTieTable),
+        );
+        setEnrichmentSummary(loadedEnrichedResult);
         setSavedAssignmentsSignature(
           buildMappingSignature(
             loadedMapping.assignments,
@@ -356,6 +472,49 @@ export default function MappingClient({
       : "Normalize upload";
   const canAddCustomField =
     (mappingState?.custom_fields.length ?? 0) < MAX_CUSTOM_FIELDS;
+  const isGprUpload = preview?.upload.data_type === "gpr";
+  const interfaceOptions = configuredInterfaceLabels.map((item) => ({
+    key: `interface_depth_${item.number}`,
+    label: `${item.label} (${item.number})`,
+  }));
+  const movingAverageWindow = Number.parseFloat(movingAverageForm.windowDistance);
+  const selectedChannelNumber =
+    movingAverageForm.channelNumber === ""
+      ? null
+      : Number.parseInt(movingAverageForm.channelNumber, 10);
+  const canSaveTies = normalizationSummary !== null && !isSavingTies;
+  const canEnrich = normalizationSummary !== null && !isEnriching;
+  const canRunMovingAverage =
+    isGprUpload &&
+    enrichmentSummary !== null &&
+    Number.isFinite(movingAverageWindow) &&
+    movingAverageWindow > 0 &&
+    !isAnalyzing;
+
+  function buildTiePayload() {
+    const rows = tieRows.map((row) => {
+      const distance = Number.parseFloat(row.distance);
+      const milepost = Number.parseFloat(row.milepost);
+      if (!Number.isFinite(distance) || !Number.isFinite(milepost)) {
+        throw new Error("Tie distance and milepost values must be numeric.");
+      }
+      const station = row.station.trim();
+      if (!station) {
+        throw new Error("Each tie row needs a station value.");
+      }
+      return {
+        distance,
+        station,
+        milepost,
+      };
+    });
+
+    if (rows.length < 2) {
+      throw new Error("Enter at least two tie rows before saving.");
+    }
+
+    return rows;
+  }
 
   function handleAssignmentChange(sourceColumn: string, canonicalField: string) {
     setMappingState((current) => {
@@ -379,6 +538,9 @@ export default function MappingClient({
     setValidation(null);
     setNormalizationSummary(null);
     setNormalizationError(null);
+    setEnrichmentSummary(null);
+    setMovingAverageSummary(null);
+    setEnrichmentError(null);
   }
 
   function handleAddCustomField() {
@@ -402,6 +564,9 @@ export default function MappingClient({
     setValidation(null);
     setNormalizationSummary(null);
     setNormalizationError(null);
+    setEnrichmentSummary(null);
+    setMovingAverageSummary(null);
+    setEnrichmentError(null);
   }
 
   function handleCustomFieldChange(
@@ -429,6 +594,9 @@ export default function MappingClient({
     setValidation(null);
     setNormalizationSummary(null);
     setNormalizationError(null);
+    setEnrichmentSummary(null);
+    setMovingAverageSummary(null);
+    setEnrichmentError(null);
   }
 
   function handleRemoveCustomField(index: number) {
@@ -446,6 +614,9 @@ export default function MappingClient({
     setValidation(null);
     setNormalizationSummary(null);
     setNormalizationError(null);
+    setEnrichmentSummary(null);
+    setMovingAverageSummary(null);
+    setEnrichmentError(null);
   }
 
   async function handleSaveMapping() {
@@ -473,6 +644,9 @@ export default function MappingClient({
       );
       setValidation(savedValidation);
       setNormalizationSummary(null);
+      setEnrichmentSummary(null);
+      setMovingAverageSummary(null);
+      setEnrichmentError(null);
       setSuccessMessage(
         savedValidation.is_valid
           ? "Mapping was saved and validated. The upload is ready for normalization."
@@ -542,6 +716,9 @@ export default function MappingClient({
       await normalizeUpload(uploadId);
       const result = await getNormalizedUpload(uploadId);
       setNormalizationSummary(result);
+      setEnrichmentSummary(null);
+      setMovingAverageSummary(null);
+      setEnrichmentError(null);
       setSuccessMessage(
         "Normalization completed. Review the summary and preview rows below.",
       );
@@ -553,6 +730,121 @@ export default function MappingClient({
       );
     } finally {
       setIsNormalizing(false);
+    }
+  }
+
+  function handleTieRowChange(index: number, updates: Partial<TieRowForm>) {
+    setTieRows((current) =>
+      current.map((row, rowIndex) =>
+        rowIndex === index
+          ? {
+              ...row,
+              ...updates,
+            }
+          : row,
+      ),
+    );
+    setEnrichmentError(null);
+    setSuccessMessage(null);
+  }
+
+  function handleAddTieRow() {
+    setTieRows((current) => [
+      ...current,
+      {
+        distance: "",
+        station: "",
+        milepost: "",
+      },
+    ]);
+    setEnrichmentError(null);
+    setSuccessMessage(null);
+  }
+
+  function handleRemoveTieRow(index: number) {
+    setTieRows((current) => current.filter((_, rowIndex) => rowIndex !== index));
+    setEnrichmentError(null);
+    setSuccessMessage(null);
+  }
+
+  async function handleSaveTies() {
+    try {
+      setIsSavingTies(true);
+      setEnrichmentError(null);
+      const savedTieTable = await saveLinearReferenceTies({
+        uploadId,
+        rows: buildTiePayload(),
+      });
+      setTieTable(savedTieTable);
+      setTieRows(buildTieRowsFromTable(savedTieTable));
+      setEnrichmentSummary(null);
+      setMovingAverageSummary(null);
+      setSuccessMessage("Tie table saved. Apply ties next to persist enriched rows.");
+    } catch (error) {
+      setEnrichmentError(
+        error instanceof Error ? error.message : "The tie table could not be saved.",
+      );
+    } finally {
+      setIsSavingTies(false);
+    }
+  }
+
+  async function handleApplyTies() {
+    try {
+      setIsEnriching(true);
+      setEnrichmentError(null);
+      const savedTieTable = await saveLinearReferenceTies({
+        uploadId,
+        rows: buildTiePayload(),
+      });
+      await enrichUpload(uploadId);
+      const enrichedResult = await getEnrichedUpload(uploadId);
+      setTieTable(savedTieTable);
+      setTieRows(buildTieRowsFromTable(savedTieTable));
+      setEnrichmentSummary(enrichedResult);
+      setMovingAverageSummary(null);
+      setSuccessMessage(
+        "Ties were applied. Station and milepost values are now persisted on enriched rows.",
+      );
+    } catch (error) {
+      setEnrichmentError(
+        error instanceof Error ? error.message : "The upload could not be enriched.",
+      );
+    } finally {
+      setIsEnriching(false);
+    }
+  }
+
+  async function handleRunMovingAverage() {
+    if (!Number.isFinite(movingAverageWindow) || movingAverageWindow <= 0) {
+      setEnrichmentError("Moving-average window must be greater than zero.");
+      return;
+    }
+
+    try {
+      setIsAnalyzing(true);
+      setEnrichmentError(null);
+      const result = await createGprMovingAverage({
+        uploadId,
+        fieldKey: movingAverageForm.fieldKey,
+        windowDistance: movingAverageWindow,
+        channelNumber:
+          selectedChannelNumber === null || Number.isNaN(selectedChannelNumber)
+            ? null
+            : selectedChannelNumber,
+      });
+      setMovingAverageSummary(result);
+      setSuccessMessage(
+        "Moving-average analysis is ready for first-pass plot review.",
+      );
+    } catch (error) {
+      setEnrichmentError(
+        error instanceof Error
+          ? error.message
+          : "The moving-average analysis could not be completed.",
+      );
+    } finally {
+      setIsAnalyzing(false);
     }
   }
 
@@ -694,6 +986,356 @@ export default function MappingClient({
             </div>
           </article>
         </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Linear Referencing</p>
+            <h2>Apply distance ties and prepare GPR analysis.</h2>
+          </div>
+          <p className="section-copy">
+            Enter control ties from distance to station and milepost, then persist an
+            enriched layer for downstream plots, maps, and exports.
+          </p>
+        </div>
+
+        {!isGprUpload ? (
+          <p className="empty-state">
+            Linear referencing by distance is currently wired for GPR uploads. Core,
+            FWD, and DCP support can reuse this layer once distance fields are added to
+            those normalized records.
+          </p>
+        ) : normalizationSummary === null ? (
+          <p className="empty-state">
+            Run normalization first. Ties are applied to normalized distance values and
+            stored as a separate enriched result.
+          </p>
+        ) : (
+          <div className="stack-sm">
+            <div className="normalization-header enrichment-header">
+              <div className="normalization-status-card">
+                <div className="table-secondary">Enrichment status</div>
+                <div className="table-primary">
+                  {enrichmentSummary === null ? "Not enriched" : "Enriched"}
+                </div>
+                <p className="inline-note">
+                  {tieTable === null
+                    ? "No tie table has been saved for this upload."
+                    : `Tie table saved ${formatTimestamp(tieTable.updated_at)}`}
+                </p>
+              </div>
+              <div className="form-actions">
+                <button
+                  className="button-secondary"
+                  type="button"
+                  onClick={handleSaveTies}
+                  disabled={!canSaveTies}
+                >
+                  {isSavingTies ? "Saving ties..." : "Save ties"}
+                </button>
+                <button
+                  className="button-primary"
+                  type="button"
+                  onClick={handleApplyTies}
+                  disabled={!canEnrich}
+                >
+                  {isEnriching ? "Applying ties..." : "Apply ties / enrich data"}
+                </button>
+              </div>
+            </div>
+
+            {enrichmentError ? (
+              <p className="message error">{enrichmentError}</p>
+            ) : null}
+
+            <div className="table-shell">
+              <table className="projects-table tie-table">
+                <thead>
+                  <tr>
+                    <th>Distance</th>
+                    <th>Station</th>
+                    <th>Milepost</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tieRows.map((row, index) => (
+                    <tr key={`tie-row-${index}`}>
+                      <td>
+                        <input
+                          type="number"
+                          step="any"
+                          value={row.distance}
+                          onChange={(event) =>
+                            handleTieRowChange(index, {
+                              distance: event.target.value,
+                            })
+                          }
+                        />
+                      </td>
+                      <td>
+                        <input
+                          value={row.station}
+                          onChange={(event) =>
+                            handleTieRowChange(index, {
+                              station: event.target.value,
+                            })
+                          }
+                          placeholder="100+00"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          step="any"
+                          value={row.milepost}
+                          onChange={(event) =>
+                            handleTieRowChange(index, {
+                              milepost: event.target.value,
+                            })
+                          }
+                        />
+                      </td>
+                      <td>
+                        <button
+                          className="button-secondary button-inline"
+                          type="button"
+                          onClick={() => handleRemoveTieRow(index)}
+                          disabled={tieRows.length <= 2}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="form-actions">
+              <button
+                className="button-secondary"
+                type="button"
+                onClick={handleAddTieRow}
+              >
+                Add tie row
+              </button>
+              <p className="inline-note">
+                Station can be entered as civil station text or numeric station feet.
+              </p>
+            </div>
+
+            {enrichmentSummary === null ? (
+              <p className="empty-state">
+                No enriched rows yet. Apply ties to persist derived station and
+                milepost values.
+              </p>
+            ) : (
+              <div className="stack-sm">
+                <div className="summary-grid">
+                  <article className="summary-card">
+                    <div className="table-secondary">Enriched rows</div>
+                    <div className="table-primary">
+                      {enrichmentSummary.enriched_row_count}
+                    </div>
+                  </article>
+                  <article className="summary-card">
+                    <div className="table-secondary">Skipped rows</div>
+                    <div className="table-primary">
+                      {enrichmentSummary.skipped_row_count}
+                    </div>
+                  </article>
+                  <article className="summary-card">
+                    <div className="table-secondary">Last enriched</div>
+                    <div className="table-primary">
+                      {formatTimestamp(enrichmentSummary.enriched_at)}
+                    </div>
+                  </article>
+                </div>
+
+                <div className="template-grid">
+                  {enrichmentSummary.preview_rows.map((row) => (
+                    <article
+                      className="definition-card"
+                      key={`enriched-row-${row.source_row_index}`}
+                    >
+                      <div className="template-card-header">
+                        <div>
+                          <div className="table-primary">
+                            Row {row.source_row_index}
+                          </div>
+                          <div className="table-secondary">
+                            Derived linear reference
+                          </div>
+                        </div>
+                      </div>
+                      <div className="preview-key-value-grid">
+                        {buildEnrichedPreviewEntries(row).map((entry) => (
+                          <div
+                            className="preview-key-value"
+                            key={`enriched-${row.source_row_index}-${entry.label}`}
+                          >
+                            <div className="table-secondary">{entry.label}</div>
+                            <div className="table-primary">{entry.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {enrichmentSummary !== null ? (
+              <div className="analysis-panel">
+                <div className="section-heading section-heading-compact">
+                  <div>
+                    <p className="eyebrow">GPR Analysis</p>
+                    <h2>Moving average by distance window</h2>
+                  </div>
+                  <p className="section-copy">
+                    First-pass output stays channel-separated and plot-ready without
+                    building charts yet.
+                  </p>
+                </div>
+
+                <div className="form-grid analysis-form-grid">
+                  <label>
+                    <span>Interface depth field</span>
+                    <select
+                      value={movingAverageForm.fieldKey}
+                      onChange={(event) =>
+                        setMovingAverageForm((current) => ({
+                          ...current,
+                          fieldKey: event.target.value,
+                        }))
+                      }
+                    >
+                      {interfaceOptions.map((option) => (
+                        <option key={option.key} value={option.key}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Window distance</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={movingAverageForm.windowDistance}
+                      onChange={(event) =>
+                        setMovingAverageForm((current) => ({
+                          ...current,
+                          windowDistance: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    <span>Channel</span>
+                    <select
+                      value={movingAverageForm.channelNumber}
+                      onChange={(event) =>
+                        setMovingAverageForm((current) => ({
+                          ...current,
+                          channelNumber: event.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">All channels, separated</option>
+                      {configuredChannelLabels.map((channel) => (
+                        <option key={channel.number} value={channel.number}>
+                          {channel.number} | {channel.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="form-actions">
+                  <button
+                    className="button-primary"
+                    type="button"
+                    onClick={handleRunMovingAverage}
+                    disabled={!canRunMovingAverage}
+                  >
+                    {isAnalyzing ? "Calculating..." : "Run moving average"}
+                  </button>
+                  <p className="inline-note">
+                    Raw scan and distance remain in each analysis point for later
+                    engineer-only trace toggles.
+                  </p>
+                </div>
+
+                {movingAverageSummary === null ? (
+                  <p className="empty-state">
+                    No moving-average result yet. Run the calculation to review a
+                    compact plot-ready preview.
+                  </p>
+                ) : (
+                  <div className="stack-sm">
+                    <div className="summary-grid">
+                      <article className="summary-card">
+                        <div className="table-secondary">Field</div>
+                        <div className="table-primary">
+                          {movingAverageSummary.field_label}
+                        </div>
+                      </article>
+                      <article className="summary-card">
+                        <div className="table-secondary">Window</div>
+                        <div className="table-primary">
+                          {movingAverageSummary.window_distance}
+                        </div>
+                      </article>
+                      <article className="summary-card">
+                        <div className="table-secondary">Points</div>
+                        <div className="table-primary">
+                          {movingAverageSummary.point_count}
+                        </div>
+                      </article>
+                    </div>
+
+                    <div className="table-shell">
+                      <table className="projects-table analysis-table">
+                        <thead>
+                          <tr>
+                            <th>Distance</th>
+                            <th>Station</th>
+                            <th>MP</th>
+                            <th>Channel</th>
+                            <th>Raw depth</th>
+                            <th>Moving average</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {movingAverageSummary.preview_points.map((point) => (
+                            <tr
+                              key={`moving-average-${point.channel_number}-${point.source_row_index}`}
+                            >
+                              <td>{point.distance}</td>
+                              <td>{point.station}</td>
+                              <td>{point.milepost.toFixed(4)}</td>
+                              <td>
+                                {point.channel_number} | {point.channel_label}
+                              </td>
+                              <td>{point.raw_value}</td>
+                              <td>{point.moving_average.toFixed(3)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+        )}
       </section>
 
       <section className="panel">

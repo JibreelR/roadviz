@@ -516,9 +516,30 @@ textarea:focus {
   background: rgba(45, 106, 79, 0.07);
 }
 
+.enrichment-header {
+  border-color: rgba(72, 110, 164, 0.22);
+  background: rgba(72, 110, 164, 0.08);
+}
+
 .normalization-status-card {
   display: grid;
   gap: 0.3rem;
+}
+
+.section-heading-compact {
+  margin-bottom: 1rem;
+}
+
+.analysis-panel {
+  display: grid;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.analysis-form-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .status-group,
@@ -560,6 +581,14 @@ textarea:focus {
 
 .custom-fields-table {
   min-width: 720px;
+}
+
+.tie-table {
+  min-width: 720px;
+}
+
+.analysis-table {
+  min-width: 760px;
 }
 
 .custom-field-name-cell input {
@@ -646,5 +675,14 @@ textarea:focus {
 
   .custom-fields-table {
     min-width: 720px;
+  }
+
+  .tie-table,
+  .analysis-table {
+    min-width: 720px;
+  }
+
+  .analysis-form-grid {
+    grid-template-columns: 1fr;
   }
 }

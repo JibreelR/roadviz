@@ -213,6 +213,83 @@ export type NormalizedResultSet = NormalizationRunSummary & {
   } | null;
 };
 
+export type LinearReferenceTieRow = {
+  distance: number;
+  station: string;
+  milepost: number;
+  station_value: number;
+};
+
+export type LinearReferenceTieTable = {
+  upload_id: string;
+  project_id: string;
+  updated_at: string;
+  rows: LinearReferenceTieRow[];
+};
+
+export type LinearReferenceTieRowInput = {
+  distance: number;
+  station: string;
+  milepost: number;
+};
+
+export type EnrichedUploadRow = {
+  upload_id: string;
+  source_row_index: number;
+  data_type: DataType;
+  normalized_row: NormalizedUploadRow;
+  distance: number;
+  derived_station: string;
+  derived_station_value: number;
+  derived_milepost: number;
+  linear_reference_method: "exact" | "interpolated" | "extrapolated";
+};
+
+export type EnrichmentRunSummary = {
+  upload_id: string;
+  data_type: DataType;
+  enriched_at: string;
+  normalized_row_count: number;
+  enriched_row_count: number;
+  skipped_row_count: number;
+  preview_rows: EnrichedUploadRow[];
+};
+
+export type EnrichedResultSet = EnrichmentRunSummary & {
+  rows: EnrichedUploadRow[];
+  rows_offset: number;
+  rows_limit: number;
+  returned_row_count: number;
+  has_more_rows: boolean;
+};
+
+export type GprMovingAveragePoint = {
+  source_row_index: number;
+  distance: number;
+  scan: number | null;
+  channel_number: number;
+  channel_label: string;
+  station: string;
+  station_value: number;
+  milepost: number;
+  raw_value: number;
+  moving_average: number;
+};
+
+export type GprMovingAverageResultSummary = {
+  id: string;
+  upload_id: string;
+  created_at: string;
+  field_key: string;
+  interface_number: number;
+  field_label: string;
+  window_distance: number;
+  channel_number: number | null;
+  source_enriched_row_count: number;
+  point_count: number;
+  preview_points: GprMovingAveragePoint[];
+};
+
 const API_BASE_URL =
   (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
@@ -387,4 +464,68 @@ export async function getNormalizedUpload(
     method: "GET",
     signal,
   });
+}
+
+export async function getLinearReferenceTies(
+  uploadId: string,
+  signal?: AbortSignal,
+): Promise<LinearReferenceTieTable> {
+  return requestJson<LinearReferenceTieTable>(
+    `/uploads/${uploadId}/linear-reference-ties`,
+    {
+      method: "GET",
+      signal,
+    },
+  );
+}
+
+export async function saveLinearReferenceTies(input: {
+  uploadId: string;
+  rows: LinearReferenceTieRowInput[];
+}): Promise<LinearReferenceTieTable> {
+  return requestJson<LinearReferenceTieTable>(
+    `/uploads/${input.uploadId}/linear-reference-ties`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        rows: input.rows,
+      }),
+    },
+  );
+}
+
+export async function enrichUpload(uploadId: string): Promise<EnrichmentRunSummary> {
+  return requestJson<EnrichmentRunSummary>(`/uploads/${uploadId}/enrich`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function getEnrichedUpload(
+  uploadId: string,
+  signal?: AbortSignal,
+): Promise<EnrichedResultSet> {
+  return requestJson<EnrichedResultSet>(`/uploads/${uploadId}/enriched`, {
+    method: "GET",
+    signal,
+  });
+}
+
+export async function createGprMovingAverage(input: {
+  uploadId: string;
+  fieldKey: string;
+  windowDistance: number;
+  channelNumber?: number | null;
+}): Promise<GprMovingAverageResultSummary> {
+  return requestJson<GprMovingAverageResultSummary>(
+    `/uploads/${input.uploadId}/analyses/gpr/moving-average`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        field_key: input.fieldKey,
+        window_distance: input.windowDistance,
+        channel_number: input.channelNumber ?? null,
+      }),
+    },
+  );
 }

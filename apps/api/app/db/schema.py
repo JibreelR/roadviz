@@ -108,6 +108,48 @@ class DatabaseSchemaManager:
                 )
                 cursor.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS linear_reference_tie_tables (
+                        upload_id UUID PRIMARY KEY REFERENCES uploads (id) ON DELETE CASCADE,
+                        project_id UUID NOT NULL REFERENCES projects (id),
+                        updated_at TIMESTAMPTZ NOT NULL,
+                        rows JSONB NOT NULL DEFAULT '[]'::jsonb
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS enriched_uploads (
+                        upload_id UUID PRIMARY KEY REFERENCES uploads (id) ON DELETE CASCADE,
+                        data_type VARCHAR(20) NOT NULL,
+                        enriched_at TIMESTAMPTZ NOT NULL,
+                        normalized_row_count INTEGER NOT NULL,
+                        enriched_row_count INTEGER NOT NULL,
+                        skipped_row_count INTEGER NOT NULL,
+                        preview_rows JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        rows JSONB NOT NULL DEFAULT '[]'::jsonb
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS gpr_moving_average_results (
+                        id UUID PRIMARY KEY,
+                        upload_id UUID NOT NULL REFERENCES uploads (id) ON DELETE CASCADE,
+                        created_at TIMESTAMPTZ NOT NULL,
+                        field_key VARCHAR(100) NOT NULL,
+                        interface_number INTEGER NOT NULL,
+                        field_label VARCHAR(200) NOT NULL,
+                        window_distance DOUBLE PRECISION NOT NULL,
+                        channel_number INTEGER,
+                        source_enriched_row_count INTEGER NOT NULL,
+                        point_count INTEGER NOT NULL,
+                        preview_points JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        points JSONB NOT NULL DEFAULT '[]'::jsonb
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
                     CREATE INDEX IF NOT EXISTS uploads_project_id_idx
                     ON uploads (project_id)
                     """
@@ -116,6 +158,18 @@ class DatabaseSchemaManager:
                     """
                     CREATE INDEX IF NOT EXISTS schema_templates_data_type_idx
                     ON schema_templates (data_type)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS linear_reference_tie_tables_project_id_idx
+                    ON linear_reference_tie_tables (project_id)
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS gpr_moving_average_results_upload_id_idx
+                    ON gpr_moving_average_results (upload_id)
                     """
                 )
 
@@ -127,6 +181,9 @@ class DatabaseSchemaManager:
                 cursor.execute(
                     """
                     TRUNCATE TABLE
+                        gpr_moving_average_results,
+                        enriched_uploads,
+                        linear_reference_tie_tables,
                         normalized_uploads,
                         upload_mappings,
                         gpr_upload_configs,

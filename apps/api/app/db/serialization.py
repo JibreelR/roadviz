@@ -4,6 +4,11 @@ from typing import Any, TypedDict
 
 from pydantic import BaseModel, TypeAdapter
 
+from app.enrichment.schemas import (
+    EnrichedUploadRow,
+    GprMovingAveragePoint,
+    LinearReferenceTieRow,
+)
 from app.gpr_imports.schemas import GprImportConfig
 from app.normalization.schemas import NormalizedUploadRow
 from app.upload_mappings.schemas import (
@@ -17,6 +22,9 @@ _field_mappings_adapter = TypeAdapter(dict[str, str])
 _mapping_assignments_adapter = TypeAdapter(list[ColumnMappingAssignment])
 _custom_field_mappings_adapter = TypeAdapter(list[CustomFieldMapping])
 _normalized_rows_adapter = TypeAdapter(list[NormalizedUploadRow])
+_linear_reference_tie_rows_adapter = TypeAdapter(list[LinearReferenceTieRow])
+_enriched_rows_adapter = TypeAdapter(list[EnrichedUploadRow])
+_gpr_moving_average_points_adapter = TypeAdapter(list[GprMovingAveragePoint])
 
 
 class UploadMappingPayload(TypedDict):
@@ -81,4 +89,22 @@ def load_normalized_rows(value: Any) -> list[NormalizedUploadRow]:
     if value is None:
         return []
     return _normalized_rows_adapter.validate_python(value)
+
+
+def load_linear_reference_tie_rows(value: Any) -> list[LinearReferenceTieRow]:
+    if value is None:
+        return []
+    return _linear_reference_tie_rows_adapter.validate_python(value)
+
+
+def load_enriched_rows(value: Any) -> list[EnrichedUploadRow]:
+    if value is None:
+        return []
+    return _enriched_rows_adapter.validate_python(value)
+
+
+def load_gpr_moving_average_points(value: Any) -> list[GprMovingAveragePoint]:
+    if value is None:
+        return []
+    return _gpr_moving_average_points_adapter.validate_python(value)
 

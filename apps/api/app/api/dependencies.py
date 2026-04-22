@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import HTTPException, Request, status
 
+from app.enrichment.repository import EnrichmentRepository
 from app.normalization.repository import NormalizedUploadRepository
 from app.mapping_definitions.service import MappingDefinitionService
 from app.parsing.service import UploadParsingService
@@ -42,6 +43,10 @@ def get_upload_mapping_repository(request: Request) -> UploadMappingRepository:
 
 def get_normalized_upload_repository(request: Request) -> NormalizedUploadRepository:
     return request.app.state.normalized_upload_repository
+
+
+def get_enrichment_repository(request: Request) -> EnrichmentRepository:
+    return request.app.state.enrichment_repository
 
 
 def get_upload_file_storage(request: Request) -> LocalUploadStorage:

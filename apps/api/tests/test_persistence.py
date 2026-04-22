@@ -8,11 +8,25 @@ from tempfile import TemporaryDirectory
 
 from fastapi import UploadFile
 
+from app.api.routes.enrichment import (
+    create_gpr_moving_average,
+    enrich_upload,
+    get_enriched_upload,
+    get_gpr_moving_average,
+    get_linear_reference_ties,
+    save_linear_reference_ties,
+)
 from app.api.routes.schema_templates import create_schema_template, list_schema_templates
 from app.api.routes.upload_mapping import get_normalized_upload, normalize_upload, save_upload_mapping
 from app.api.routes.uploads import create_upload
 from app.db.connection import Database
 from app.db.schema import DatabaseSchemaManager
+from app.enrichment.db_repository import DatabaseEnrichmentRepository
+from app.enrichment.schemas import (
+    EnrichmentRequest,
+    GprMovingAverageRequest,
+    LinearReferenceTieTableWrite,
+)
 from app.mapping_definitions.service import MappingDefinitionService
 from app.normalization.db_repository import DatabaseNormalizedUploadRepository
 from app.parsing.service import UploadParsingService
@@ -46,6 +60,7 @@ class DatabasePersistenceTests(unittest.TestCase):
         self.schema_repository = DatabaseSchemaTemplateRepository(self.database)
         self.mapping_repository = DatabaseUploadMappingRepository(self.database)
         self.normalized_repository = DatabaseNormalizedUploadRepository(self.database)
+        self.enrichment_repository = DatabaseEnrichmentRepository(self.database)
         self.mapping_definition_service = MappingDefinitionService()
         self.parsing_service = UploadParsingService()
         self.upload_storage = LocalUploadStorage(Path(self.temp_dir.name))
@@ -183,10 +198,40 @@ class DatabasePersistenceTests(unittest.TestCase):
             self.parsing_service,
             self.normalized_repository,
         )
+        save_linear_reference_ties(
+            created_upload.id,
+            LinearReferenceTieTableWrite(
+                rows=[
+                    {"distance": 0, "station": "100+00", "milepost": 10.0},
+                    {"distance": 25, "station": "100+25", "milepost": 10.005},
+                ]
+            ),
+            self.upload_repository,
+            self.normalized_repository,
+            self.enrichment_repository,
+        )
+        enrich_upload(
+            created_upload.id,
+            EnrichmentRequest(),
+            self.upload_repository,
+            self.normalized_repository,
+            self.enrichment_repository,
+        )
+        moving_average = create_gpr_moving_average(
+            created_upload.id,
+            GprMovingAverageRequest(
+                field_key="interface_depth_1",
+                window_distance=25,
+            ),
+            self.upload_repository,
+            self.normalized_repository,
+            self.enrichment_repository,
+        )
 
         fresh_upload_repository = DatabaseUploadRepository(self.database)
         fresh_mapping_repository = DatabaseUploadMappingRepository(self.database)
         fresh_normalized_repository = DatabaseNormalizedUploadRepository(self.database)
+        fresh_enrichment_repository = DatabaseEnrichmentRepository(self.database)
 
         persisted_mapping = fresh_mapping_repository.get(created_upload.id)
         default_result = get_normalized_upload(
@@ -209,6 +254,28 @@ class DatabasePersistenceTests(unittest.TestCase):
             self.parsing_service,
             fresh_normalized_repository,
         )
+        persisted_ties = get_linear_reference_ties(
+            created_upload.id,
+            fresh_upload_repository,
+            fresh_enrichment_repository,
+        )
+        persisted_enriched = get_enriched_upload(
+            created_upload.id,
+            2,
+            0,
+            fresh_upload_repository,
+            fresh_normalized_repository,
+            fresh_enrichment_repository,
+        )
+        persisted_moving_average = get_gpr_moving_average(
+            created_upload.id,
+            moving_average.id,
+            2,
+            0,
+            fresh_upload_repository,
+            fresh_normalized_repository,
+            fresh_enrichment_repository,
+        )
 
         self.assertIsNotNone(persisted_mapping)
         self.assertTrue(persisted_mapping.is_saved)
@@ -226,6 +293,11 @@ class DatabasePersistenceTests(unittest.TestCase):
             paged_result.rows[0].normalized_values.interface_depths[0].interface_label,
             "Surface",
         )
+        self.assertEqual(persisted_ties.rows[0].station, "100+00")
+        self.assertEqual(persisted_enriched.enriched_row_count, 2)
+        self.assertEqual(persisted_enriched.rows[1].derived_station, "100+25.00")
+        self.assertEqual(persisted_moving_average.point_count, 2)
+        self.assertEqual(persisted_moving_average.points[0].station, "100+00.00")
 
     def test_blank_gpr_interface_depths_persist_as_null(self) -> None:
         created_upload = asyncio.run(
