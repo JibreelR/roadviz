@@ -302,11 +302,11 @@ export default function MappingClient({
     currentAssignmentsSignature !== null &&
     savedAssignmentsSignature !== null &&
     currentAssignmentsSignature !== savedAssignmentsSignature;
+  const isSavedForNormalization =
+    mappingState?.is_saved === true && !hasUnsavedChanges;
+  const hasValidMapping = validation?.is_valid === true;
   const canNormalize =
-    mappingState?.is_saved === true &&
-    !hasUnsavedChanges &&
-    validation?.is_valid === true &&
-    !isNormalizing;
+    isSavedForNormalization && hasValidMapping && !isNormalizing;
   const normalizationIssueSummary = normalizationSummary?.issue_summary ?? null;
   const normalizationErrorCount =
     normalizationIssueSummary?.error_count ?? validationErrors.length;
@@ -319,6 +319,11 @@ export default function MappingClient({
           ...normalizationIssueSummary.errors,
           ...normalizationIssueSummary.warnings,
         ];
+  const normalizeButtonLabel = isNormalizing
+    ? "Normalizing..."
+    : normalizationSummary
+      ? "Run normalization again"
+      : "Normalize upload";
 
   function handleAssignmentChange(sourceColumn: string, canonicalField: string) {
     setMappingState((current) => {
@@ -490,6 +495,20 @@ export default function MappingClient({
           : validation?.is_valid
             ? "Validation passed. Next step: normalize this upload."
             : "Run validation and resolve any errors before normalization.";
+  const validationNextStepTitle = validation?.is_valid
+    ? "Next step: Normalize this upload"
+    : "Next step unlocks after validation passes";
+  const validationNextStepCopy = validation?.is_valid
+    ? canNormalize
+      ? "The saved mapping passed validation. Normalize now to store RoadViz-ready rows and review the normalized preview."
+      : "Validation passed for these selections. Save the mapping to enable normalization."
+    : "Resolve validation errors first. The Normalize action stays disabled until the mapping is valid.";
+  const normalizedResultStatus =
+    normalizationSummary === null
+      ? canNormalize
+        ? "Ready to run"
+        : "Not run"
+      : "Completed";
 
   return (
     <div className="stack-lg">
@@ -560,6 +579,14 @@ export default function MappingClient({
             <div>
               <div className="table-primary">Normalize rows</div>
               <p className="inline-note">Current status: {workflowStatus}.</p>
+              <button
+                className="button-secondary button-inline workflow-step-action"
+                type="button"
+                onClick={handleNormalizeUpload}
+                disabled={!canNormalize}
+              >
+                {normalizeButtonLabel}
+              </button>
             </div>
           </article>
         </div>
@@ -805,15 +832,25 @@ export default function MappingClient({
           >
             {isValidating ? "Validating..." : "Validate mapping"}
           </button>
+          <button
+            className="button-primary"
+            type="button"
+            onClick={handleNormalizeUpload}
+            disabled={!canNormalize}
+          >
+            {normalizeButtonLabel}
+          </button>
           <p className="inline-note">
             {mappingState.is_saved && mappingState.updated_at
               ? `Last saved ${formatTimestamp(mappingState.updated_at)}`
               : "This mapping has not been saved yet."}
           </p>
           <p className="inline-note">
-            {hasUnsavedChanges
-              ? "Current selections differ from the last saved mapping."
-              : "Normalization uses the saved mapping shown here."}
+            {canNormalize
+              ? "Validation passed. Normalization is the next step."
+              : hasUnsavedChanges
+                ? "Current selections differ from the last saved mapping."
+                : "Normalize unlocks after the saved mapping passes validation."}
           </p>
         </div>
       </section>
@@ -913,26 +950,20 @@ export default function MappingClient({
               </div>
             )}
 
-            {validation.is_valid ? (
-              <div className="next-step-callout">
-                <div className="stack-sm">
-                  <div className="table-primary">Next step: Normalize this upload</div>
-                  <p className="inline-note">
-                    {canNormalize
-                      ? "The mapping passed validation. Run normalization now to generate RoadViz-ready rows and preview the normalized output."
-                      : "Validation passed for the current selections. Save the mapping if needed to enable normalization."}
-                  </p>
-                </div>
-                <button
-                  className="button-primary"
-                  type="button"
-                  onClick={handleNormalizeUpload}
-                  disabled={!canNormalize}
-                >
-                  {isNormalizing ? "Normalizing..." : "Normalize upload"}
-                </button>
+            <div className="next-step-callout">
+              <div className="stack-sm">
+                <div className="table-primary">{validationNextStepTitle}</div>
+                <p className="inline-note">{validationNextStepCopy}</p>
               </div>
-            ) : null}
+              <button
+                className="button-primary"
+                type="button"
+                onClick={handleNormalizeUpload}
+                disabled={!canNormalize}
+              >
+                {normalizeButtonLabel}
+              </button>
+            </div>
           </div>
         )}
       </section>
@@ -949,18 +980,20 @@ export default function MappingClient({
           </p>
         </div>
 
-        <div className="form-actions">
+        <div className="normalization-header">
+          <div className="normalization-status-card">
+            <div className="table-secondary">Normalization status</div>
+            <div className="table-primary">{normalizedResultStatus}</div>
+            <p className="inline-note">{normalizeGuidance}</p>
+          </div>
           <button
             className="button-primary"
             type="button"
             onClick={handleNormalizeUpload}
             disabled={!canNormalize}
           >
-            {isNormalizing ? "Normalizing..." : "Normalize upload"}
+            {normalizeButtonLabel}
           </button>
-          <p className="inline-note">
-            {normalizeGuidance}
-          </p>
         </div>
 
         {normalizationError ? <p className="message error">{normalizationError}</p> : null}
@@ -981,7 +1014,7 @@ export default function MappingClient({
                 onClick={handleNormalizeUpload}
                 disabled={!canNormalize}
               >
-                {isNormalizing ? "Normalizing..." : "Normalize upload"}
+                {normalizeButtonLabel}
               </button>
             </div>
           ) : (
@@ -995,7 +1028,7 @@ export default function MappingClient({
             <div className="summary-grid">
               <article className="summary-card">
                 <div className="table-secondary">Normalization status</div>
-                <div className="table-primary">Completed</div>
+                <div className="table-primary">{normalizedResultStatus}</div>
               </article>
               <article className="summary-card">
                 <div className="table-secondary">Source rows</div>
@@ -1020,7 +1053,9 @@ export default function MappingClient({
             </div>
 
             {normalizationIssues.length > 0 ? (
-              <div className="validation-list">
+              <div className="stack-sm">
+                <div className="table-primary">Warning and error summary</div>
+                <div className="validation-list">
                 {normalizationIssues.map((issue) => (
                   <article
                     className={`validation-item validation-${issue.severity}`}
@@ -1045,8 +1080,13 @@ export default function MappingClient({
                     )}
                   </article>
                 ))}
+                </div>
               </div>
-            ) : null}
+            ) : (
+              <p className="message success">
+                No validation warnings or errors are attached to this normalized result.
+              </p>
+            )}
 
             <div className="stack-sm">
               <div className="template-card-header">
