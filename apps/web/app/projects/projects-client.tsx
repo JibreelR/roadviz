@@ -5,9 +5,12 @@ import { FormEvent, useEffect, useState, useTransition } from "react";
 
 import {
   createProject,
+  getProjectStationMilepostTies,
   listProjects,
+  saveProjectStationMilepostTies,
   type Project,
   type ProjectCreateInput,
+  type ProjectStationMilepostTieTable,
   type ProjectStatus,
 } from "../../lib/projects";
 
@@ -28,6 +31,11 @@ type ProjectFormState = {
   status: ProjectStatus;
 };
 
+type ProjectTieRowForm = {
+  station: string;
+  milepost: string;
+};
+
 const initialFormState: ProjectFormState = {
   project_code: "",
   name: "",
@@ -44,6 +52,11 @@ const initialFormState: ProjectFormState = {
   description: "",
   status: "draft",
 };
+
+const defaultProjectTieRows: ProjectTieRowForm[] = [
+  { station: "0+00", milepost: "0" },
+  { station: "1+00", milepost: "0.02" },
+];
 
 const statusOptions: ProjectStatus[] = ["draft", "active", "completed", "archived"];
 
@@ -105,12 +118,38 @@ function formatTimestamp(timestamp: string): string {
   }).format(new Date(timestamp));
 }
 
+function isMissingProjectTieTableError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message === "Project station/MP tie table not found."
+  );
+}
+
+function buildProjectTieRowsFromTable(
+  tieTable: ProjectStationMilepostTieTable,
+): ProjectTieRowForm[] {
+  return tieTable.rows.map((row) => ({
+    station: row.station,
+    milepost: String(row.milepost),
+  }));
+}
+
 export default function ProjectsClient() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [form, setForm] = useState<ProjectFormState>(initialFormState);
+  const [selectedTieProjectId, setSelectedTieProjectId] = useState<string>("");
+  const [projectTieRows, setProjectTieRows] = useState<ProjectTieRowForm[]>(
+    defaultProjectTieRows,
+  );
+  const [projectTieTable, setProjectTieTable] =
+    useState<ProjectStationMilepostTieTable | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingProjectTies, setIsLoadingProjectTies] = useState(false);
+  const [isSavingProjectTies, setIsSavingProjectTies] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [projectTieError, setProjectTieError] = useState<string | null>(null);
+  const [projectTieMessage, setProjectTieMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -121,6 +160,7 @@ export default function ProjectsClient() {
         setErrorMessage(null);
         const loadedProjects = await listProjects(controller.signal);
         setProjects(loadedProjects);
+        setSelectedTieProjectId((current) => current || loadedProjects[0]?.id || "");
       } catch (error) {
         if (controller.signal.aborted) {
           return;
@@ -140,6 +180,51 @@ export default function ProjectsClient() {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    if (!selectedTieProjectId) {
+      setProjectTieTable(null);
+      setProjectTieRows(defaultProjectTieRows);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function loadProjectTies() {
+      try {
+        setIsLoadingProjectTies(true);
+        setProjectTieError(null);
+        const loadedTieTable = await getProjectStationMilepostTies(
+          selectedTieProjectId,
+          controller.signal,
+        );
+        setProjectTieTable(loadedTieTable);
+        setProjectTieRows(buildProjectTieRowsFromTable(loadedTieTable));
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        if (isMissingProjectTieTableError(error)) {
+          setProjectTieTable(null);
+          setProjectTieRows(defaultProjectTieRows);
+          return;
+        }
+        setProjectTieError(
+          error instanceof Error
+            ? error.message
+            : "Project station/MP ties could not be loaded.",
+        );
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoadingProjectTies(false);
+        }
+      }
+    }
+
+    void loadProjectTies();
+
+    return () => controller.abort();
+  }, [selectedTieProjectId]);
+
   function updateField<K extends keyof ProjectFormState>(
     field: K,
     value: ProjectFormState[K],
@@ -157,6 +242,7 @@ export default function ProjectsClient() {
           const payload = toProjectPayload(form);
           const createdProject = await createProject(payload);
           setProjects((current) => [createdProject, ...current]);
+          setSelectedTieProjectId((current) => current || createdProject.id);
           setForm(initialFormState);
           setErrorMessage(null);
           setSuccessMessage(`Created project ${createdProject.project_code}.`);
@@ -167,6 +253,78 @@ export default function ProjectsClient() {
         }
       })();
     });
+  }
+
+  function handleProjectTieRowChange(
+    index: number,
+    updates: Partial<ProjectTieRowForm>,
+  ) {
+    setProjectTieRows((current) =>
+      current.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, ...updates } : row,
+      ),
+    );
+    setProjectTieError(null);
+    setProjectTieMessage(null);
+  }
+
+  function handleAddProjectTieRow() {
+    setProjectTieRows((current) => [...current, { station: "", milepost: "" }]);
+    setProjectTieError(null);
+    setProjectTieMessage(null);
+  }
+
+  function handleRemoveProjectTieRow(index: number) {
+    setProjectTieRows((current) => current.filter((_, rowIndex) => rowIndex !== index));
+    setProjectTieError(null);
+    setProjectTieMessage(null);
+  }
+
+  function buildProjectTiePayload() {
+    const rows = projectTieRows.map((row) => {
+      const station = row.station.trim();
+      const milepost = Number.parseFloat(row.milepost);
+      if (!station) {
+        throw new Error("Each project tie row needs a station value.");
+      }
+      if (!Number.isFinite(milepost)) {
+        throw new Error("Project tie milepost values must be numeric.");
+      }
+      return { station, milepost };
+    });
+
+    if (rows.length < 2) {
+      throw new Error("Enter at least two project station/MP tie rows.");
+    }
+
+    return rows;
+  }
+
+  async function handleSaveProjectTies() {
+    if (!selectedTieProjectId) {
+      setProjectTieError("Create or select a project before saving station/MP ties.");
+      return;
+    }
+
+    try {
+      setIsSavingProjectTies(true);
+      setProjectTieError(null);
+      const savedTieTable = await saveProjectStationMilepostTies({
+        projectId: selectedTieProjectId,
+        rows: buildProjectTiePayload(),
+      });
+      setProjectTieTable(savedTieTable);
+      setProjectTieRows(buildProjectTieRowsFromTable(savedTieTable));
+      setProjectTieMessage("Project station/MP ties saved for reuse by uploads.");
+    } catch (error) {
+      setProjectTieError(
+        error instanceof Error
+          ? error.message
+          : "Project station/MP ties could not be saved.",
+      );
+    } finally {
+      setIsSavingProjectTies(false);
+    }
   }
 
   return (
@@ -335,6 +493,135 @@ export default function ProjectsClient() {
 
         {errorMessage ? <p className="message error">{errorMessage}</p> : null}
         {successMessage ? <p className="message success">{successMessage}</p> : null}
+      </section>
+
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Project Station/MP Ties</p>
+            <h2>Define station to milepost once per project.</h2>
+          </div>
+          <p className="section-copy">
+            These project ties are reused during enrichment. Upload-specific GPR ties
+            only map collection distance to project station.
+          </p>
+        </div>
+
+        {projects.length === 0 ? (
+          <p className="empty-state">
+            Create a project before entering station to milepost ties.
+          </p>
+        ) : (
+          <div className="stack-sm">
+            <div className="form-grid">
+              <label className="field-full">
+                <span>Project</span>
+                <select
+                  value={selectedTieProjectId}
+                  onChange={(event) => {
+                    setSelectedTieProjectId(event.target.value);
+                    setProjectTieMessage(null);
+                    setProjectTieError(null);
+                  }}
+                >
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.project_code} | {project.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {isLoadingProjectTies ? (
+              <p className="empty-state">Loading project station/MP ties...</p>
+            ) : (
+              <>
+                <div className="table-shell">
+                  <table className="projects-table tie-table">
+                    <thead>
+                      <tr>
+                        <th>Station</th>
+                        <th>Milepost</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {projectTieRows.map((row, index) => (
+                        <tr key={`project-tie-row-${index}`}>
+                          <td>
+                            <input
+                              value={row.station}
+                              onChange={(event) =>
+                                handleProjectTieRowChange(index, {
+                                  station: event.target.value,
+                                })
+                              }
+                              placeholder="100+00"
+                            />
+                          </td>
+                          <td>
+                            <input
+                              type="number"
+                              step="any"
+                              value={row.milepost}
+                              onChange={(event) =>
+                                handleProjectTieRowChange(index, {
+                                  milepost: event.target.value,
+                                })
+                              }
+                              placeholder="10.0"
+                            />
+                          </td>
+                          <td>
+                            <button
+                              className="button-secondary button-inline"
+                              type="button"
+                              onClick={() => handleRemoveProjectTieRow(index)}
+                              disabled={projectTieRows.length <= 2}
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="form-actions">
+                  <button
+                    className="button-secondary"
+                    type="button"
+                    onClick={handleAddProjectTieRow}
+                  >
+                    Add tie row
+                  </button>
+                  <button
+                    className="button-primary"
+                    type="button"
+                    onClick={handleSaveProjectTies}
+                    disabled={isSavingProjectTies}
+                  >
+                    {isSavingProjectTies ? "Saving ties..." : "Save project ties"}
+                  </button>
+                  <p className="inline-note">
+                    {projectTieTable === null
+                      ? "No station/MP tie table has been saved for this project."
+                      : `Last saved ${formatTimestamp(projectTieTable.updated_at)}`}
+                  </p>
+                </div>
+              </>
+            )}
+
+            {projectTieError ? (
+              <p className="message error">{projectTieError}</p>
+            ) : null}
+            {projectTieMessage ? (
+              <p className="message success">{projectTieMessage}</p>
+            ) : null}
+          </div>
+        )}
       </section>
 
       <section className="panel">

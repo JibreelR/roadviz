@@ -13,8 +13,10 @@ from app.api.routes.enrichment import (
     enrich_upload,
     get_enriched_upload,
     get_gpr_moving_average,
-    get_linear_reference_ties,
-    save_linear_reference_ties,
+    get_project_station_milepost_ties,
+    get_upload_distance_station_ties,
+    save_project_station_milepost_ties,
+    save_upload_distance_station_ties,
 )
 from app.api.routes.schema_templates import create_schema_template, list_schema_templates
 from app.api.routes.upload_mapping import get_normalized_upload, normalize_upload, save_upload_mapping
@@ -25,7 +27,8 @@ from app.enrichment.db_repository import DatabaseEnrichmentRepository
 from app.enrichment.schemas import (
     EnrichmentRequest,
     GprMovingAverageRequest,
-    LinearReferenceTieTableWrite,
+    ProjectStationMilepostTieTableWrite,
+    UploadDistanceStationTieTableWrite,
 )
 from app.mapping_definitions.service import MappingDefinitionService
 from app.normalization.db_repository import DatabaseNormalizedUploadRepository
@@ -198,12 +201,24 @@ class DatabasePersistenceTests(unittest.TestCase):
             self.parsing_service,
             self.normalized_repository,
         )
-        save_linear_reference_ties(
-            created_upload.id,
-            LinearReferenceTieTableWrite(
+        save_project_station_milepost_ties(
+            self.project.id,
+            ProjectStationMilepostTieTableWrite(
                 rows=[
-                    {"distance": 0, "station": "100+00", "milepost": 10.0},
-                    {"distance": 25, "station": "100+25", "milepost": 10.005},
+                    {"station": "100+00", "milepost": 10.0},
+                    {"station": "100+25", "milepost": 10.005},
+                ]
+            ),
+            self.project_repository,
+            self.normalized_repository,
+            self.enrichment_repository,
+        )
+        save_upload_distance_station_ties(
+            created_upload.id,
+            UploadDistanceStationTieTableWrite(
+                rows=[
+                    {"distance": 0, "station": "100+00"},
+                    {"distance": 25, "station": "100+25"},
                 ]
             ),
             self.upload_repository,
@@ -254,7 +269,12 @@ class DatabasePersistenceTests(unittest.TestCase):
             self.parsing_service,
             fresh_normalized_repository,
         )
-        persisted_ties = get_linear_reference_ties(
+        persisted_project_ties = get_project_station_milepost_ties(
+            self.project.id,
+            self.project_repository,
+            fresh_enrichment_repository,
+        )
+        persisted_upload_ties = get_upload_distance_station_ties(
             created_upload.id,
             fresh_upload_repository,
             fresh_enrichment_repository,
@@ -293,7 +313,8 @@ class DatabasePersistenceTests(unittest.TestCase):
             paged_result.rows[0].normalized_values.interface_depths[0].interface_label,
             "Surface",
         )
-        self.assertEqual(persisted_ties.rows[0].station, "100+00")
+        self.assertEqual(persisted_project_ties.rows[0].milepost, 10.0)
+        self.assertEqual(persisted_upload_ties.rows[0].station, "100+00")
         self.assertEqual(persisted_enriched.enriched_row_count, 2)
         self.assertEqual(persisted_enriched.rows[1].derived_station, "100+25.00")
         self.assertEqual(persisted_moving_average.point_count, 2)

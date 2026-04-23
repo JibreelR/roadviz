@@ -7,7 +7,8 @@ from pydantic import BaseModel, TypeAdapter
 from app.enrichment.schemas import (
     EnrichedUploadRow,
     GprMovingAveragePoint,
-    LinearReferenceTieRow,
+    ProjectStationMilepostTieRow,
+    UploadDistanceStationTieRow,
 )
 from app.gpr_imports.schemas import GprImportConfig
 from app.normalization.schemas import NormalizedUploadRow
@@ -22,7 +23,12 @@ _field_mappings_adapter = TypeAdapter(dict[str, str])
 _mapping_assignments_adapter = TypeAdapter(list[ColumnMappingAssignment])
 _custom_field_mappings_adapter = TypeAdapter(list[CustomFieldMapping])
 _normalized_rows_adapter = TypeAdapter(list[NormalizedUploadRow])
-_linear_reference_tie_rows_adapter = TypeAdapter(list[LinearReferenceTieRow])
+_project_station_milepost_tie_rows_adapter = TypeAdapter(
+    list[ProjectStationMilepostTieRow]
+)
+_upload_distance_station_tie_rows_adapter = TypeAdapter(
+    list[UploadDistanceStationTieRow]
+)
 _enriched_rows_adapter = TypeAdapter(list[EnrichedUploadRow])
 _gpr_moving_average_points_adapter = TypeAdapter(list[GprMovingAveragePoint])
 
@@ -91,10 +97,20 @@ def load_normalized_rows(value: Any) -> list[NormalizedUploadRow]:
     return _normalized_rows_adapter.validate_python(value)
 
 
-def load_linear_reference_tie_rows(value: Any) -> list[LinearReferenceTieRow]:
+def load_project_station_milepost_tie_rows(
+    value: Any,
+) -> list[ProjectStationMilepostTieRow]:
     if value is None:
         return []
-    return _linear_reference_tie_rows_adapter.validate_python(value)
+    return _project_station_milepost_tie_rows_adapter.validate_python(value)
+
+
+def load_upload_distance_station_tie_rows(
+    value: Any,
+) -> list[UploadDistanceStationTieRow]:
+    if value is None:
+        return []
+    return _upload_distance_station_tie_rows_adapter.validate_python(value)
 
 
 def load_enriched_rows(value: Any) -> list[EnrichedUploadRow]:

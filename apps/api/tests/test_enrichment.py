@@ -12,8 +12,10 @@ from app.api.routes.enrichment import (
     enrich_upload,
     get_enriched_upload,
     get_gpr_moving_average,
-    get_linear_reference_ties,
-    save_linear_reference_ties,
+    get_project_station_milepost_ties,
+    get_upload_distance_station_ties,
+    save_project_station_milepost_ties,
+    save_upload_distance_station_ties,
 )
 from app.api.routes.upload_mapping import normalize_upload, save_upload_mapping
 from app.api.routes.uploads import create_upload
@@ -21,7 +23,8 @@ from app.enrichment.repository import InMemoryEnrichmentRepository
 from app.enrichment.schemas import (
     EnrichmentRequest,
     GprMovingAverageRequest,
-    LinearReferenceTieTableWrite,
+    ProjectStationMilepostTieTableWrite,
+    UploadDistanceStationTieTableWrite,
 )
 from app.main import app
 from app.mapping_definitions.service import MappingDefinitionService
@@ -127,19 +130,36 @@ class EnrichmentFoundationTests(unittest.TestCase):
     def test_ties_enrich_rows_and_gpr_moving_average_outputs_plot_ready_points(self) -> None:
         created_upload = self._create_normalized_gpr_upload()
 
-        saved_ties = save_linear_reference_ties(
-            upload_id=created_upload.id,
-            tie_table_in=LinearReferenceTieTableWrite(
+        saved_project_ties = save_project_station_milepost_ties(
+            project_id=self.project.id,
+            tie_table_in=ProjectStationMilepostTieTableWrite(
                 rows=[
-                    {"distance": 0, "station": "100+00", "milepost": 10.0},
-                    {"distance": 100, "station": "101+00", "milepost": 10.02},
+                    {"station": "100+00", "milepost": 10.0},
+                    {"station": "101+00", "milepost": 10.02},
+                ]
+            ),
+            project_repository=self.project_repository,
+            normalized_repository=self.normalized_repository,
+            enrichment_repository=self.enrichment_repository,
+        )
+        saved_upload_ties = save_upload_distance_station_ties(
+            upload_id=created_upload.id,
+            tie_table_in=UploadDistanceStationTieTableWrite(
+                rows=[
+                    {"distance": 0, "station": "100+00"},
+                    {"distance": 100, "station": "101+00"},
                 ]
             ),
             upload_repository=self.upload_repository,
             normalized_repository=self.normalized_repository,
             enrichment_repository=self.enrichment_repository,
         )
-        loaded_ties = get_linear_reference_ties(
+        loaded_project_ties = get_project_station_milepost_ties(
+            project_id=self.project.id,
+            project_repository=self.project_repository,
+            enrichment_repository=self.enrichment_repository,
+        )
+        loaded_upload_ties = get_upload_distance_station_ties(
             upload_id=created_upload.id,
             upload_repository=self.upload_repository,
             enrichment_repository=self.enrichment_repository,
@@ -179,8 +199,10 @@ class EnrichmentFoundationTests(unittest.TestCase):
             enrichment_repository=self.enrichment_repository,
         )
 
-        self.assertEqual(saved_ties.rows[0].station_value, 10000)
-        self.assertEqual(loaded_ties.rows[1].milepost, 10.02)
+        self.assertEqual(saved_project_ties.rows[0].station_value, 10000)
+        self.assertEqual(saved_upload_ties.rows[1].station_value, 10100)
+        self.assertEqual(loaded_project_ties.rows[1].milepost, 10.02)
+        self.assertEqual(loaded_upload_ties.rows[0].distance, 0)
         self.assertEqual(enrichment_summary.normalized_row_count, 3)
         self.assertEqual(enrichment_summary.enriched_row_count, 3)
         self.assertEqual(enrichment_summary.skipped_row_count, 0)
@@ -199,7 +221,8 @@ class EnrichmentFoundationTests(unittest.TestCase):
 
     def test_enrichment_routes_registered(self) -> None:
         paths = {route.path for route in app.routes}
-        self.assertIn("/uploads/{upload_id}/linear-reference-ties", paths)
+        self.assertIn("/projects/{project_id}/station-milepost-ties", paths)
+        self.assertIn("/uploads/{upload_id}/distance-station-ties", paths)
         self.assertIn("/uploads/{upload_id}/enrich", paths)
         self.assertIn("/uploads/{upload_id}/enriched", paths)
         self.assertIn("/uploads/{upload_id}/analyses/gpr/moving-average", paths)

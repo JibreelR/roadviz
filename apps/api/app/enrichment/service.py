@@ -12,9 +12,12 @@ from app.enrichment.schemas import (
     GprMovingAverageRequest,
     GprMovingAverageResultSet,
     LinearReferenceMethod,
-    LinearReferenceTieRow,
-    LinearReferenceTieTable,
-    LinearReferenceTieTableWrite,
+    ProjectStationMilepostTieRow,
+    ProjectStationMilepostTieTable,
+    ProjectStationMilepostTieTableWrite,
+    UploadDistanceStationTieRow,
+    UploadDistanceStationTieTable,
+    UploadDistanceStationTieTableWrite,
 )
 from app.normalization.repository import NormalizedUploadRepository
 from app.normalization.schemas import GprNormalizedRow, NormalizedUploadRow
@@ -27,7 +30,7 @@ class EnrichmentError(Exception):
 
 
 class LinearReferencingEnrichmentService:
-    """Apply manual distance ties and produce first-pass GPR analysis outputs."""
+    """Apply manual linear-reference ties and produce first-pass GPR outputs."""
 
     def __init__(
         self,
@@ -37,17 +40,43 @@ class LinearReferencingEnrichmentService:
         self._normalized_repository = normalized_repository
         self._enrichment_repository = enrichment_repository
 
-    def save_tie_table(
+    def save_project_station_milepost_tie_table(
         self,
-        upload: Upload,
-        tie_table_in: LinearReferenceTieTableWrite,
-    ) -> LinearReferenceTieTable:
+        project_id: UUID,
+        tie_table_in: ProjectStationMilepostTieTableWrite,
+    ) -> ProjectStationMilepostTieTable:
         rows = [
-            LinearReferenceTieRow(
-                distance=row.distance,
+            ProjectStationMilepostTieRow(
                 station=row.station,
                 station_value=parse_station_value(row.station),
                 milepost=row.milepost,
+            )
+            for row in tie_table_in.rows
+        ]
+        rows = sorted(rows, key=lambda row: row.station_value)
+        station_values = [row.station_value for row in rows]
+        if len(set(station_values)) != len(station_values):
+            raise EnrichmentError("Project station tie values must be unique.")
+
+        tie_table = ProjectStationMilepostTieTable(
+            project_id=project_id,
+            updated_at=utc_now(),
+            rows=rows,
+        )
+        return self._enrichment_repository.save_project_station_milepost_tie_table(
+            tie_table
+        )
+
+    def save_upload_distance_station_tie_table(
+        self,
+        upload: Upload,
+        tie_table_in: UploadDistanceStationTieTableWrite,
+    ) -> UploadDistanceStationTieTable:
+        rows = [
+            UploadDistanceStationTieRow(
+                distance=row.distance,
+                station=row.station,
+                station_value=parse_station_value(row.station),
             )
             for row in tie_table_in.rows
         ]
@@ -56,24 +85,46 @@ class LinearReferencingEnrichmentService:
         if len(set(distances)) != len(distances):
             raise EnrichmentError("Tie distances must be unique.")
 
-        tie_table = LinearReferenceTieTable(
+        tie_table = UploadDistanceStationTieTable(
             upload_id=upload.id,
             project_id=upload.project_id,
             updated_at=utc_now(),
             rows=rows,
         )
-        return self._enrichment_repository.save_tie_table(tie_table)
+        return self._enrichment_repository.save_upload_distance_station_tie_table(
+            tie_table
+        )
 
     def apply_ties(
         self,
         upload: Upload,
         request: EnrichmentRequest,
     ) -> EnrichmentRunSummary:
-        tie_table = self._enrichment_repository.get_tie_table(upload.id)
-        if tie_table is None:
-            raise EnrichmentError("Save a tie table before applying enrichment.")
-        if len(tie_table.rows) < 2:
-            raise EnrichmentError("At least two tie rows are required for interpolation.")
+        upload_tie_table = (
+            self._enrichment_repository.get_upload_distance_station_tie_table(upload.id)
+        )
+        if upload_tie_table is None:
+            raise EnrichmentError(
+                "Save upload distance/station ties before applying enrichment."
+            )
+        if len(upload_tie_table.rows) < 2:
+            raise EnrichmentError(
+                "At least two upload distance/station tie rows are required."
+            )
+
+        project_tie_table = (
+            self._enrichment_repository.get_project_station_milepost_tie_table(
+                upload.project_id
+            )
+        )
+        if project_tie_table is None:
+            raise EnrichmentError(
+                "Save project station/MP ties before applying enrichment."
+            )
+        if len(project_tie_table.rows) < 2:
+            raise EnrichmentError(
+                "At least two project station/MP tie rows are required."
+            )
 
         normalized_rows = self._get_all_normalized_rows(upload.id)
         enriched_rows: list[EnrichedUploadRow] = []
@@ -82,7 +133,14 @@ class LinearReferencingEnrichmentService:
             distance = _extract_distance(row)
             if distance is None:
                 continue
-            station_value, milepost, method = interpolate_ties(distance, tie_table.rows)
+            station_value, station_method = interpolate_distance_to_station(
+                distance,
+                upload_tie_table.rows,
+            )
+            milepost, milepost_method = interpolate_station_to_milepost(
+                station_value,
+                project_tie_table.rows,
+            )
             enriched_rows.append(
                 EnrichedUploadRow(
                     upload_id=upload.id,
@@ -93,7 +151,10 @@ class LinearReferencingEnrichmentService:
                     derived_station=format_station(station_value),
                     derived_station_value=station_value,
                     derived_milepost=milepost,
-                    linear_reference_method=method,
+                    linear_reference_method=combine_linear_reference_methods(
+                        station_method,
+                        milepost_method,
+                    ),
                 )
             )
 
@@ -280,40 +341,92 @@ def format_station(station_value: float) -> str:
     return f"{sign}{station_number}+{offset:05.2f}"
 
 
-def interpolate_ties(
+def interpolate_distance_to_station(
     distance: float,
-    rows: list[LinearReferenceTieRow],
-) -> tuple[float, float, LinearReferenceMethod]:
+    rows: list[UploadDistanceStationTieRow],
+) -> tuple[float, LinearReferenceMethod]:
     for row in rows:
         if abs(row.distance - distance) <= 1e-9:
-            return row.station_value, row.milepost, "exact"
+            return row.station_value, "exact"
 
-    method: LinearReferenceMethod = "interpolated"
-    if distance < rows[0].distance:
-        left = rows[0]
-        right = rows[1]
-        method = "extrapolated"
-    elif distance > rows[-1].distance:
-        left = rows[-2]
-        right = rows[-1]
-        method = "extrapolated"
-    else:
-        left = rows[0]
-        right = rows[-1]
-        for index in range(len(rows) - 1):
-            if rows[index].distance <= distance <= rows[index + 1].distance:
-                left = rows[index]
-                right = rows[index + 1]
-                break
+    left, right, method = _find_bracketing_rows(
+        distance,
+        rows,
+        lambda row: row.distance,
+    )
 
     distance_span = right.distance - left.distance
     if distance_span == 0:
         raise EnrichmentError("Tie distances must be unique.")
 
     ratio = (distance - left.distance) / distance_span
-    station_value = left.station_value + ratio * (right.station_value - left.station_value)
+    station_value = left.station_value + ratio * (
+        right.station_value - left.station_value
+    )
+    return station_value, method
+
+
+def interpolate_station_to_milepost(
+    station_value: float,
+    rows: list[ProjectStationMilepostTieRow],
+) -> tuple[float, LinearReferenceMethod]:
+    for row in rows:
+        if abs(row.station_value - station_value) <= 1e-9:
+            return row.milepost, "exact"
+
+    left, right, method = _find_bracketing_rows(
+        station_value,
+        rows,
+        lambda row: row.station_value,
+    )
+
+    station_span = right.station_value - left.station_value
+    if station_span == 0:
+        raise EnrichmentError("Project station tie values must be unique.")
+
+    ratio = (station_value - left.station_value) / station_span
     milepost = left.milepost + ratio * (right.milepost - left.milepost)
-    return station_value, milepost, method
+    return milepost, method
+
+
+def combine_linear_reference_methods(
+    station_method: LinearReferenceMethod,
+    milepost_method: LinearReferenceMethod,
+) -> LinearReferenceMethod:
+    if station_method == "extrapolated" or milepost_method == "extrapolated":
+        return "extrapolated"
+    if station_method == "interpolated" or milepost_method == "interpolated":
+        return "interpolated"
+    return "exact"
+
+
+def _find_bracketing_rows[T](
+    value: float,
+    rows: list[T],
+    get_value,
+) -> tuple[T, T, LinearReferenceMethod]:
+    method: LinearReferenceMethod = "interpolated"
+    if value < get_value(rows[0]):
+        return rows[0], rows[1], "extrapolated"
+    if value > get_value(rows[-1]):
+        return rows[-2], rows[-1], "extrapolated"
+
+    left = rows[0]
+    right = rows[-1]
+    for index in range(len(rows) - 1):
+        if get_value(rows[index]) <= value <= get_value(rows[index + 1]):
+            left = rows[index]
+            right = rows[index + 1]
+            break
+
+    return left, right, method
+
+
+def interpolate_ties(
+    distance: float,
+    rows: list[UploadDistanceStationTieRow],
+) -> tuple[float, LinearReferenceMethod]:
+    return interpolate_distance_to_station(distance, rows)
 
 
 def _extract_distance(row: NormalizedUploadRow) -> float | None:

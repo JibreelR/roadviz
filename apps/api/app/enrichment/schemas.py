@@ -13,10 +13,8 @@ from app.uploads.schemas import DataType
 LinearReferenceMethod = Literal["exact", "interpolated", "extrapolated"]
 
 
-class LinearReferenceTieRowWrite(BaseModel):
-    distance: float
+class StationTieRowMixin(BaseModel):
     station: str = Field(..., min_length=1, max_length=100)
-    milepost: float
 
     @field_validator("station")
     @classmethod
@@ -27,19 +25,46 @@ class LinearReferenceTieRowWrite(BaseModel):
         return normalized
 
 
-class LinearReferenceTieRow(LinearReferenceTieRowWrite):
+class ProjectStationMilepostTieRowWrite(StationTieRowMixin):
+    milepost: float
+
+
+class ProjectStationMilepostTieRow(ProjectStationMilepostTieRowWrite):
     station_value: float
 
 
-class LinearReferenceTieTableWrite(BaseModel):
-    rows: list[LinearReferenceTieRowWrite] = Field(..., min_length=2)
+class ProjectStationMilepostTieTableWrite(BaseModel):
+    rows: list[ProjectStationMilepostTieRowWrite] = Field(..., min_length=2)
 
 
-class LinearReferenceTieTable(BaseModel):
+class ProjectStationMilepostTieTable(BaseModel):
+    project_id: UUID
+    updated_at: datetime
+    rows: list[ProjectStationMilepostTieRow] = Field(default_factory=list)
+
+
+class UploadDistanceStationTieRowWrite(StationTieRowMixin):
+    distance: float
+
+
+class UploadDistanceStationTieRow(UploadDistanceStationTieRowWrite):
+    station_value: float
+
+
+class UploadDistanceStationTieTableWrite(BaseModel):
+    rows: list[UploadDistanceStationTieRowWrite] = Field(..., min_length=2)
+
+
+class UploadDistanceStationTieTable(BaseModel):
     upload_id: UUID
     project_id: UUID
     updated_at: datetime
-    rows: list[LinearReferenceTieRow] = Field(default_factory=list)
+    rows: list[UploadDistanceStationTieRow] = Field(default_factory=list)
+
+
+# Backward-compatible names for the original upload-scoped tie endpoints.
+LinearReferenceTieTableWrite = UploadDistanceStationTieTableWrite
+LinearReferenceTieTable = UploadDistanceStationTieTable
 
 
 class EnrichmentRequest(BaseModel):

@@ -6,25 +6,25 @@ import {
   createGprMovingAverage,
   enrichUpload,
   getEnrichedUpload,
-  getLinearReferenceTies,
+  getUploadDistanceStationTies,
   getUploadMapping,
   getUploadMappingDefinition,
   getNormalizedUpload,
   getUploadPreview,
   normalizeUpload,
   saveUploadMapping,
-  saveLinearReferenceTies,
+  saveUploadDistanceStationTies,
   validateUploadMapping,
   type ColumnMappingAssignment,
   type CustomFieldMapping,
   type EnrichedResultSet,
   type EnrichedUploadRow,
   type GprMovingAverageResultSummary,
-  type LinearReferenceTieTable,
   type MappingDefinition,
   type MappingValidationResult,
   type NormalizedResultSet,
   type NormalizedUploadRow,
+  type UploadDistanceStationTieTable,
   type UploadMappingState,
   type UploadPreview,
 } from "../../../../../../lib/uploads";
@@ -34,12 +34,11 @@ const MAX_CUSTOM_FIELDS = 10;
 type TieRowForm = {
   distance: string;
   station: string;
-  milepost: string;
 };
 
 const defaultTieRows: TieRowForm[] = [
-  { distance: "0", station: "0+00", milepost: "0" },
-  { distance: "100", station: "1+00", milepost: "0.02" },
+  { distance: "0", station: "0+00" },
+  { distance: "100", station: "1+00" },
 ];
 
 function formatTimestamp(timestamp: string): string {
@@ -91,7 +90,10 @@ function isMissingNormalizedResultError(error: unknown): boolean {
 }
 
 function isMissingTieTableError(error: unknown): boolean {
-  return error instanceof Error && error.message === "Tie table not found.";
+  return (
+    error instanceof Error &&
+    error.message === "Upload distance/station tie table not found."
+  );
 }
 
 function isMissingEnrichedResultError(error: unknown): boolean {
@@ -203,11 +205,10 @@ function buildCustomFieldPreviewEntries(
   }));
 }
 
-function buildTieRowsFromTable(tieTable: LinearReferenceTieTable): TieRowForm[] {
+function buildTieRowsFromTable(tieTable: UploadDistanceStationTieTable): TieRowForm[] {
   return tieTable.rows.map((row) => ({
     distance: String(row.distance),
     station: row.station,
-    milepost: String(row.milepost),
   }));
 }
 
@@ -252,7 +253,8 @@ export default function MappingClient({
   const [normalizationSummary, setNormalizationSummary] =
     useState<NormalizedResultSet | null>(null);
   const [tieRows, setTieRows] = useState<TieRowForm[]>(defaultTieRows);
-  const [tieTable, setTieTable] = useState<LinearReferenceTieTable | null>(null);
+  const [tieTable, setTieTable] =
+    useState<UploadDistanceStationTieTable | null>(null);
   const [enrichmentSummary, setEnrichmentSummary] =
     useState<EnrichedResultSet | null>(null);
   const [movingAverageSummary, setMovingAverageSummary] =
@@ -290,9 +292,9 @@ export default function MappingClient({
       }
     }
 
-    async function loadExistingTieTable(): Promise<LinearReferenceTieTable | null> {
+    async function loadExistingTieTable(): Promise<UploadDistanceStationTieTable | null> {
       try {
-        return await getLinearReferenceTies(uploadId, controller.signal);
+        return await getUploadDistanceStationTies(uploadId, controller.signal);
       } catch (error) {
         if (isMissingTieTableError(error)) {
           return null;
@@ -494,9 +496,8 @@ export default function MappingClient({
   function buildTiePayload() {
     const rows = tieRows.map((row) => {
       const distance = Number.parseFloat(row.distance);
-      const milepost = Number.parseFloat(row.milepost);
-      if (!Number.isFinite(distance) || !Number.isFinite(milepost)) {
-        throw new Error("Tie distance and milepost values must be numeric.");
+      if (!Number.isFinite(distance)) {
+        throw new Error("Tie distance values must be numeric.");
       }
       const station = row.station.trim();
       if (!station) {
@@ -505,7 +506,6 @@ export default function MappingClient({
       return {
         distance,
         station,
-        milepost,
       };
     });
 
@@ -754,7 +754,6 @@ export default function MappingClient({
       {
         distance: "",
         station: "",
-        milepost: "",
       },
     ]);
     setEnrichmentError(null);
@@ -771,7 +770,7 @@ export default function MappingClient({
     try {
       setIsSavingTies(true);
       setEnrichmentError(null);
-      const savedTieTable = await saveLinearReferenceTies({
+      const savedTieTable = await saveUploadDistanceStationTies({
         uploadId,
         rows: buildTiePayload(),
       });
@@ -779,7 +778,9 @@ export default function MappingClient({
       setTieRows(buildTieRowsFromTable(savedTieTable));
       setEnrichmentSummary(null);
       setMovingAverageSummary(null);
-      setSuccessMessage("Tie table saved. Apply ties next to persist enriched rows.");
+      setSuccessMessage(
+        "Upload distance/station ties saved. Apply enrichment next to persist derived station and milepost.",
+      );
     } catch (error) {
       setEnrichmentError(
         error instanceof Error ? error.message : "The tie table could not be saved.",
@@ -793,7 +794,7 @@ export default function MappingClient({
     try {
       setIsEnriching(true);
       setEnrichmentError(null);
-      const savedTieTable = await saveLinearReferenceTies({
+      const savedTieTable = await saveUploadDistanceStationTies({
         uploadId,
         rows: buildTiePayload(),
       });
@@ -804,7 +805,7 @@ export default function MappingClient({
       setEnrichmentSummary(enrichedResult);
       setMovingAverageSummary(null);
       setSuccessMessage(
-        "Ties were applied. Station and milepost values are now persisted on enriched rows.",
+        "Enrichment completed. Station came from upload distance/station ties; milepost came from project station/MP ties.",
       );
     } catch (error) {
       setEnrichmentError(
@@ -992,18 +993,18 @@ export default function MappingClient({
         <div className="section-heading">
           <div>
             <p className="eyebrow">Linear Referencing</p>
-            <h2>Apply distance ties and prepare GPR analysis.</h2>
+            <h2>Apply upload distance ties and prepare GPR analysis.</h2>
           </div>
           <p className="section-copy">
-            Enter control ties from distance to station and milepost, then persist an
-            enriched layer for downstream plots, maps, and exports.
+            Enter upload-specific ties from collection distance to project station.
+            Enrichment then uses the project station/MP table to derive milepost.
           </p>
         </div>
 
         {!isGprUpload ? (
           <p className="empty-state">
             Linear referencing by distance is currently wired for GPR uploads. Core,
-            FWD, and DCP support can reuse this layer once distance fields are added to
+            FWD, and DCP support can reuse these tie layers once distance fields are added to
             those normalized records.
           </p>
         ) : normalizationSummary === null ? (
@@ -1021,8 +1022,8 @@ export default function MappingClient({
                 </div>
                 <p className="inline-note">
                   {tieTable === null
-                    ? "No tie table has been saved for this upload."
-                    : `Tie table saved ${formatTimestamp(tieTable.updated_at)}`}
+                    ? "No upload distance/station tie table has been saved."
+                    : `Upload distance/station ties saved ${formatTimestamp(tieTable.updated_at)}`}
                 </p>
               </div>
               <div className="form-actions">
@@ -1032,7 +1033,7 @@ export default function MappingClient({
                   onClick={handleSaveTies}
                   disabled={!canSaveTies}
                 >
-                  {isSavingTies ? "Saving ties..." : "Save ties"}
+                  {isSavingTies ? "Saving ties..." : "Save upload ties"}
                 </button>
                 <button
                   className="button-primary"
@@ -1040,7 +1041,7 @@ export default function MappingClient({
                   onClick={handleApplyTies}
                   disabled={!canEnrich}
                 >
-                  {isEnriching ? "Applying ties..." : "Apply ties / enrich data"}
+                  {isEnriching ? "Enriching..." : "Enrich data"}
                 </button>
               </div>
             </div>
@@ -1054,8 +1055,7 @@ export default function MappingClient({
                 <thead>
                   <tr>
                     <th>Distance</th>
-                    <th>Station</th>
-                    <th>Milepost</th>
+                    <th>Project station</th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -1086,18 +1086,6 @@ export default function MappingClient({
                         />
                       </td>
                       <td>
-                        <input
-                          type="number"
-                          step="any"
-                          value={row.milepost}
-                          onChange={(event) =>
-                            handleTieRowChange(index, {
-                              milepost: event.target.value,
-                            })
-                          }
-                        />
-                      </td>
-                      <td>
                         <button
                           className="button-secondary button-inline"
                           type="button"
@@ -1122,7 +1110,8 @@ export default function MappingClient({
                 Add tie row
               </button>
               <p className="inline-note">
-                Station can be entered as civil station text or numeric station feet.
+                These upload ties are distance to project station only. Project station
+                to milepost ties are configured once on the Projects page.
               </p>
             </div>
 

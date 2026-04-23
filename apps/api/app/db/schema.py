@@ -118,6 +118,25 @@ class DatabaseSchemaManager:
                 )
                 cursor.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS project_station_milepost_tie_tables (
+                        project_id UUID PRIMARY KEY REFERENCES projects (id) ON DELETE CASCADE,
+                        updated_at TIMESTAMPTZ NOT NULL,
+                        rows JSONB NOT NULL DEFAULT '[]'::jsonb
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS upload_distance_station_tie_tables (
+                        upload_id UUID PRIMARY KEY REFERENCES uploads (id) ON DELETE CASCADE,
+                        project_id UUID NOT NULL REFERENCES projects (id),
+                        updated_at TIMESTAMPTZ NOT NULL,
+                        rows JSONB NOT NULL DEFAULT '[]'::jsonb
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS enriched_uploads (
                         upload_id UUID PRIMARY KEY REFERENCES uploads (id) ON DELETE CASCADE,
                         data_type VARCHAR(20) NOT NULL,
@@ -168,11 +187,18 @@ class DatabaseSchemaManager:
                 )
                 cursor.execute(
                     """
+                    CREATE INDEX IF NOT EXISTS upload_distance_station_tie_tables_project_id_idx
+                    ON upload_distance_station_tie_tables (project_id)
+                    """
+                )
+                cursor.execute(
+                    """
                     CREATE INDEX IF NOT EXISTS gpr_moving_average_results_upload_id_idx
                     ON gpr_moving_average_results (upload_id)
                     """
                 )
 
+            self._migrate_legacy_linear_reference_ties(connection)
             self._seed_default_schema_templates(connection)
 
     def reset_for_tests(self) -> None:
@@ -183,6 +209,8 @@ class DatabaseSchemaManager:
                     TRUNCATE TABLE
                         gpr_moving_average_results,
                         enriched_uploads,
+                        upload_distance_station_tie_tables,
+                        project_station_milepost_tie_tables,
                         linear_reference_tie_tables,
                         normalized_uploads,
                         upload_mappings,
@@ -194,6 +222,56 @@ class DatabaseSchemaManager:
                     """
                 )
             self._seed_default_schema_templates(connection)
+
+    def _migrate_legacy_linear_reference_ties(self, connection) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO upload_distance_station_tie_tables (
+                    upload_id,
+                    project_id,
+                    updated_at,
+                    rows
+                )
+                SELECT
+                    upload_id,
+                    project_id,
+                    updated_at,
+                    rows
+                FROM linear_reference_tie_tables
+                ON CONFLICT (upload_id) DO NOTHING
+                """
+            )
+            cursor.execute(
+                """
+                WITH legacy_project_ties AS (
+                    SELECT DISTINCT ON (project_id)
+                        project_id,
+                        updated_at,
+                        rows
+                    FROM linear_reference_tie_tables
+                    ORDER BY project_id, updated_at DESC
+                )
+                INSERT INTO project_station_milepost_tie_tables (
+                    project_id,
+                    updated_at,
+                    rows
+                )
+                SELECT
+                    project_id,
+                    updated_at,
+                    (
+                        SELECT COALESCE(
+                            jsonb_agg(item.value - 'distance' ORDER BY item.ordinality),
+                            '[]'::jsonb
+                        )
+                        FROM jsonb_array_elements(legacy_project_ties.rows)
+                            WITH ORDINALITY AS item(value, ordinality)
+                    ) AS rows
+                FROM legacy_project_ties
+                ON CONFLICT (project_id) DO NOTHING
+                """
+            )
 
     def _seed_default_schema_templates(self, connection) -> None:
         timestamp = utc_now()

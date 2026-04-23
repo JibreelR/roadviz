@@ -9,12 +9,14 @@ from app.db.serialization import (
     dump_models,
     load_enriched_rows,
     load_gpr_moving_average_points,
-    load_linear_reference_tie_rows,
+    load_project_station_milepost_tie_rows,
+    load_upload_distance_station_tie_rows,
 )
 from app.enrichment.schemas import (
     EnrichedResultSet,
     GprMovingAverageResultSet,
-    LinearReferenceTieTable,
+    ProjectStationMilepostTieTable,
+    UploadDistanceStationTieTable,
 )
 
 
@@ -24,13 +26,73 @@ class DatabaseEnrichmentRepository:
     def __init__(self, database: Database) -> None:
         self._database = database
 
-    def get_tie_table(self, upload_id: UUID) -> LinearReferenceTieTable | None:
+    def get_project_station_milepost_tie_table(
+        self,
+        project_id: UUID,
+    ) -> ProjectStationMilepostTieTable | None:
+        with self._database.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT project_id, updated_at, rows
+                    FROM project_station_milepost_tie_tables
+                    WHERE project_id = %s
+                    """,
+                    (project_id,),
+                )
+                row = cursor.fetchone()
+
+        if row is None:
+            return None
+
+        return ProjectStationMilepostTieTable.model_validate(
+            {
+                **row,
+                "rows": [
+                    item.model_dump(mode="json")
+                    for item in load_project_station_milepost_tie_rows(row["rows"])
+                ],
+            }
+        )
+
+    def save_project_station_milepost_tie_table(
+        self,
+        tie_table: ProjectStationMilepostTieTable,
+    ) -> ProjectStationMilepostTieTable:
+        with self._database.connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO project_station_milepost_tie_tables (
+                        project_id,
+                        updated_at,
+                        rows
+                    )
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (project_id)
+                    DO UPDATE SET
+                        updated_at = EXCLUDED.updated_at,
+                        rows = EXCLUDED.rows
+                    """,
+                    (
+                        tie_table.project_id,
+                        tie_table.updated_at,
+                        Jsonb(dump_models(tie_table.rows)),
+                    ),
+                )
+
+        return tie_table.model_copy(deep=True)
+
+    def get_upload_distance_station_tie_table(
+        self,
+        upload_id: UUID,
+    ) -> UploadDistanceStationTieTable | None:
         with self._database.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
                     SELECT upload_id, project_id, updated_at, rows
-                    FROM linear_reference_tie_tables
+                    FROM upload_distance_station_tie_tables
                     WHERE upload_id = %s
                     """,
                     (upload_id,),
@@ -40,22 +102,25 @@ class DatabaseEnrichmentRepository:
         if row is None:
             return None
 
-        return LinearReferenceTieTable.model_validate(
+        return UploadDistanceStationTieTable.model_validate(
             {
                 **row,
                 "rows": [
                     item.model_dump(mode="json")
-                    for item in load_linear_reference_tie_rows(row["rows"])
+                    for item in load_upload_distance_station_tie_rows(row["rows"])
                 ],
             }
         )
 
-    def save_tie_table(self, tie_table: LinearReferenceTieTable) -> LinearReferenceTieTable:
+    def save_upload_distance_station_tie_table(
+        self,
+        tie_table: UploadDistanceStationTieTable,
+    ) -> UploadDistanceStationTieTable:
         with self._database.connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    INSERT INTO linear_reference_tie_tables (
+                    INSERT INTO upload_distance_station_tie_tables (
                         upload_id,
                         project_id,
                         updated_at,

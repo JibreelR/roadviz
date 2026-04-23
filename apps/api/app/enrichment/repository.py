@@ -7,14 +7,31 @@ from uuid import UUID
 from app.enrichment.schemas import (
     EnrichedResultSet,
     GprMovingAverageResultSet,
-    LinearReferenceTieTable,
+    ProjectStationMilepostTieTable,
+    UploadDistanceStationTieTable,
 )
 
 
 class EnrichmentRepository(Protocol):
-    def get_tie_table(self, upload_id: UUID) -> LinearReferenceTieTable | None: ...
+    def get_project_station_milepost_tie_table(
+        self,
+        project_id: UUID,
+    ) -> ProjectStationMilepostTieTable | None: ...
 
-    def save_tie_table(self, tie_table: LinearReferenceTieTable) -> LinearReferenceTieTable: ...
+    def save_project_station_milepost_tie_table(
+        self,
+        tie_table: ProjectStationMilepostTieTable,
+    ) -> ProjectStationMilepostTieTable: ...
+
+    def get_upload_distance_station_tie_table(
+        self,
+        upload_id: UUID,
+    ) -> UploadDistanceStationTieTable | None: ...
+
+    def save_upload_distance_station_tie_table(
+        self,
+        tie_table: UploadDistanceStationTieTable,
+    ) -> UploadDistanceStationTieTable: ...
 
     def get_enriched_result(
         self,
@@ -45,22 +62,57 @@ class InMemoryEnrichmentRepository:
     """Retain tie tables, enriched rows, and analysis runs for route-level tests."""
 
     def __init__(self) -> None:
-        self._tie_tables: dict[UUID, LinearReferenceTieTable] = {}
+        self._project_station_milepost_tie_tables: dict[
+            UUID, ProjectStationMilepostTieTable
+        ] = {}
+        self._upload_distance_station_tie_tables: dict[
+            UUID, UploadDistanceStationTieTable
+        ] = {}
         self._enriched_results: dict[UUID, EnrichedResultSet] = {}
         self._moving_average_results: dict[tuple[UUID, UUID], GprMovingAverageResultSet] = {}
         self._lock = Lock()
 
-    def get_tie_table(self, upload_id: UUID) -> LinearReferenceTieTable | None:
+    def get_project_station_milepost_tie_table(
+        self,
+        project_id: UUID,
+    ) -> ProjectStationMilepostTieTable | None:
         with self._lock:
-            tie_table = self._tie_tables.get(upload_id)
+            tie_table = self._project_station_milepost_tie_tables.get(project_id)
 
         if tie_table is None:
             return None
         return tie_table.model_copy(deep=True)
 
-    def save_tie_table(self, tie_table: LinearReferenceTieTable) -> LinearReferenceTieTable:
+    def save_project_station_milepost_tie_table(
+        self,
+        tie_table: ProjectStationMilepostTieTable,
+    ) -> ProjectStationMilepostTieTable:
         with self._lock:
-            self._tie_tables[tie_table.upload_id] = tie_table.model_copy(deep=True)
+            self._project_station_milepost_tie_tables[tie_table.project_id] = (
+                tie_table.model_copy(deep=True)
+            )
+
+        return tie_table.model_copy(deep=True)
+
+    def get_upload_distance_station_tie_table(
+        self,
+        upload_id: UUID,
+    ) -> UploadDistanceStationTieTable | None:
+        with self._lock:
+            tie_table = self._upload_distance_station_tie_tables.get(upload_id)
+
+        if tie_table is None:
+            return None
+        return tie_table.model_copy(deep=True)
+
+    def save_upload_distance_station_tie_table(
+        self,
+        tie_table: UploadDistanceStationTieTable,
+    ) -> UploadDistanceStationTieTable:
+        with self._lock:
+            self._upload_distance_station_tie_tables[tie_table.upload_id] = (
+                tie_table.model_copy(deep=True)
+            )
 
         return tie_table.model_copy(deep=True)
 

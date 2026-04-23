@@ -37,6 +37,23 @@ export type ProjectCreateInput = {
   status: ProjectStatus;
 };
 
+export type ProjectStationMilepostTieRow = {
+  station: string;
+  milepost: number;
+  station_value: number;
+};
+
+export type ProjectStationMilepostTieTable = {
+  project_id: string;
+  updated_at: string;
+  rows: ProjectStationMilepostTieRow[];
+};
+
+export type ProjectStationMilepostTieRowInput = {
+  station: string;
+  milepost: number;
+};
+
 const API_BASE_URL =
   (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
@@ -70,4 +87,27 @@ export async function createProject(project: ProjectCreateInput): Promise<Projec
     method: "POST",
     body: JSON.stringify(project),
   });
+}
+
+export async function getProjectStationMilepostTies(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<ProjectStationMilepostTieTable> {
+  return requestJson<ProjectStationMilepostTieTable>(
+    `/projects/${projectId}/station-milepost-ties`,
+    { method: "GET", signal },
+  );
+}
+
+export async function saveProjectStationMilepostTies(input: {
+  projectId: string;
+  rows: ProjectStationMilepostTieRowInput[];
+}): Promise<ProjectStationMilepostTieTable> {
+  return requestJson<ProjectStationMilepostTieTable>(
+    `/projects/${input.projectId}/station-milepost-ties`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ rows: input.rows }),
+    },
+  );
 }

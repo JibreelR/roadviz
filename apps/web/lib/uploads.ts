@@ -213,24 +213,22 @@ export type NormalizedResultSet = NormalizationRunSummary & {
   } | null;
 };
 
-export type LinearReferenceTieRow = {
+export type UploadDistanceStationTieRow = {
   distance: number;
   station: string;
-  milepost: number;
   station_value: number;
 };
 
-export type LinearReferenceTieTable = {
+export type UploadDistanceStationTieTable = {
   upload_id: string;
   project_id: string;
   updated_at: string;
-  rows: LinearReferenceTieRow[];
+  rows: UploadDistanceStationTieRow[];
 };
 
-export type LinearReferenceTieRowInput = {
+export type UploadDistanceStationTieRowInput = {
   distance: number;
   station: string;
-  milepost: number;
 };
 
 export type EnrichedUploadRow = {
@@ -466,12 +464,12 @@ export async function getNormalizedUpload(
   });
 }
 
-export async function getLinearReferenceTies(
+export async function getUploadDistanceStationTies(
   uploadId: string,
   signal?: AbortSignal,
-): Promise<LinearReferenceTieTable> {
-  return requestJson<LinearReferenceTieTable>(
-    `/uploads/${uploadId}/linear-reference-ties`,
+): Promise<UploadDistanceStationTieTable> {
+  return requestJson<UploadDistanceStationTieTable>(
+    `/uploads/${uploadId}/distance-station-ties`,
     {
       method: "GET",
       signal,
@@ -479,12 +477,12 @@ export async function getLinearReferenceTies(
   );
 }
 
-export async function saveLinearReferenceTies(input: {
+export async function saveUploadDistanceStationTies(input: {
   uploadId: string;
-  rows: LinearReferenceTieRowInput[];
-}): Promise<LinearReferenceTieTable> {
-  return requestJson<LinearReferenceTieTable>(
-    `/uploads/${input.uploadId}/linear-reference-ties`,
+  rows: UploadDistanceStationTieRowInput[];
+}): Promise<UploadDistanceStationTieTable> {
+  return requestJson<UploadDistanceStationTieTable>(
+    `/uploads/${input.uploadId}/distance-station-ties`,
     {
       method: "PUT",
       body: JSON.stringify({
