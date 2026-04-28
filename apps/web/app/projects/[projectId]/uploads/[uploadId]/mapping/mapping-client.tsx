@@ -219,7 +219,13 @@ function buildEnrichedPreviewEntries(
     { label: "Source row", value: String(row.source_row_index) },
     { label: "Distance", value: String(row.distance) },
     { label: "Station", value: row.derived_station },
-    { label: "Milepost", value: row.derived_milepost.toFixed(4) },
+    {
+      label: "Milepost",
+      value:
+        row.derived_milepost === null
+          ? "Not available"
+          : row.derived_milepost.toFixed(4),
+    },
     { label: "Method", value: row.linear_reference_method },
   ];
 
@@ -1308,8 +1314,12 @@ export default function MappingClient({
                             >
                               <td>{point.distance}</td>
                               <td>{point.station}</td>
-                              <td>{point.milepost.toFixed(4)}</td>
-                              <td>
+                                <td>
+                                  {point.milepost === null
+                                    ? "Not available"
+                                    : point.milepost.toFixed(4)}
+                                </td>
+                                <td>
                                 {point.channel_number} | {point.channel_label}
                               </td>
                               <td>{point.raw_value}</td>

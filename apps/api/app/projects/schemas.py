@@ -19,9 +19,19 @@ class ProjectStatus(StrEnum):
     ARCHIVED = "archived"
 
 
+class LinearReferenceMode(StrEnum):
+    STATIONS_ONLY = "stations_only"
+    STATIONS_MILEPOSTS = "stations_mileposts"
+
+
 class ProjectWrite(BaseModel):
     project_code: str = Field(..., min_length=1, max_length=50)
     name: str = Field(..., min_length=1, max_length=200)
+    lane_count: int = Field(default=1, ge=1, le=24)
+    has_outside_shoulder: bool = False
+    has_inside_shoulder: bool = False
+    ramp_count: int = Field(default=0, ge=0, le=24)
+    linear_reference_mode: LinearReferenceMode = LinearReferenceMode.STATIONS_MILEPOSTS
     client_name: str | None = Field(default=None, max_length=200)
     route: str | None = Field(default=None, max_length=100)
     roadway: str | None = Field(default=None, max_length=200)

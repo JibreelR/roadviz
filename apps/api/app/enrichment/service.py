@@ -21,7 +21,7 @@ from app.enrichment.schemas import (
 )
 from app.normalization.repository import NormalizedUploadRepository
 from app.normalization.schemas import GprNormalizedRow, NormalizedUploadRow
-from app.projects.schemas import utc_now
+from app.projects.schemas import LinearReferenceMode, utc_now
 from app.uploads.schemas import DataType, Upload
 
 
@@ -99,6 +99,8 @@ class LinearReferencingEnrichmentService:
         self,
         upload: Upload,
         request: EnrichmentRequest,
+        *,
+        linear_reference_mode: LinearReferenceMode = LinearReferenceMode.STATIONS_MILEPOSTS,
     ) -> EnrichmentRunSummary:
         upload_tie_table = (
             self._enrichment_repository.get_upload_distance_station_tie_table(upload.id)
@@ -112,19 +114,21 @@ class LinearReferencingEnrichmentService:
                 "At least two upload distance/station tie rows are required."
             )
 
-        project_tie_table = (
-            self._enrichment_repository.get_project_station_milepost_tie_table(
-                upload.project_id
+        project_tie_table: ProjectStationMilepostTieTable | None = None
+        if linear_reference_mode == LinearReferenceMode.STATIONS_MILEPOSTS:
+            project_tie_table = (
+                self._enrichment_repository.get_project_station_milepost_tie_table(
+                    upload.project_id
+                )
             )
-        )
-        if project_tie_table is None:
-            raise EnrichmentError(
-                "Save project station/MP ties before applying enrichment."
-            )
-        if len(project_tie_table.rows) < 2:
-            raise EnrichmentError(
-                "At least two project station/MP tie rows are required."
-            )
+            if project_tie_table is None:
+                raise EnrichmentError(
+                    "Save project station/MP ties before applying enrichment."
+                )
+            if len(project_tie_table.rows) < 2:
+                raise EnrichmentError(
+                    "At least two project station/MP tie rows are required."
+                )
 
         normalized_rows = self._get_all_normalized_rows(upload.id)
         enriched_rows: list[EnrichedUploadRow] = []
@@ -137,10 +141,13 @@ class LinearReferencingEnrichmentService:
                 distance,
                 upload_tie_table.rows,
             )
-            milepost, milepost_method = interpolate_station_to_milepost(
-                station_value,
-                project_tie_table.rows,
-            )
+            milepost: float | None = None
+            milepost_method: LinearReferenceMethod = station_method
+            if project_tie_table is not None:
+                milepost, milepost_method = interpolate_station_to_milepost(
+                    station_value,
+                    project_tie_table.rows,
+                )
             enriched_rows.append(
                 EnrichedUploadRow(
                     upload_id=upload.id,
@@ -453,7 +460,7 @@ class _GprAnalysisCandidate:
         channel_label: str,
         station: str,
         station_value: float,
-        milepost: float,
+        milepost: float | None,
         raw_value: float,
         field_label: str,
     ) -> None:

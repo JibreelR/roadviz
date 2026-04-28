@@ -11,7 +11,7 @@ from app.api.routes.projects import (
 )
 from app.main import app
 from app.projects.repository import InMemoryProjectRepository
-from app.projects.schemas import ProjectStatus, ProjectWrite
+from app.projects.schemas import LinearReferenceMode, ProjectStatus, ProjectWrite
 
 
 class ProjectCrudTests(unittest.TestCase):
@@ -20,6 +20,11 @@ class ProjectCrudTests(unittest.TestCase):
         self.project_payload = ProjectWrite(
             project_code="NJDOT-001",
             name="I-80 Corridor Survey",
+            lane_count=3,
+            has_outside_shoulder=True,
+            has_inside_shoulder=False,
+            ramp_count=2,
+            linear_reference_mode=LinearReferenceMode.STATIONS_MILEPOSTS,
             client_name="NJDOT",
             route="I-80",
             roadway="Mainline",
@@ -41,6 +46,11 @@ class ProjectCrudTests(unittest.TestCase):
         self.assertEqual(len(projects), 1)
         self.assertEqual(projects[0].id, created_project.id)
         self.assertEqual(projects[0].project_code, "NJDOT-001")
+        self.assertEqual(projects[0].lane_count, 3)
+        self.assertEqual(
+            projects[0].linear_reference_mode,
+            LinearReferenceMode.STATIONS_MILEPOSTS,
+        )
         self.assertEqual(projects[0].status, ProjectStatus.DRAFT)
 
     def test_read_and_update_project(self) -> None:
@@ -54,6 +64,11 @@ class ProjectCrudTests(unittest.TestCase):
             ProjectWrite(
                 project_code="NJDOT-001",
                 name="I-80 Corridor Survey Phase 1",
+                lane_count=4,
+                has_outside_shoulder=True,
+                has_inside_shoulder=True,
+                ramp_count=1,
+                linear_reference_mode=LinearReferenceMode.STATIONS_ONLY,
                 client_name="NJDOT",
                 route="I-80",
                 roadway="Mainline",
@@ -71,6 +86,12 @@ class ProjectCrudTests(unittest.TestCase):
         )
 
         self.assertEqual(updated_project.name, "I-80 Corridor Survey Phase 1")
+        self.assertEqual(updated_project.lane_count, 4)
+        self.assertTrue(updated_project.has_inside_shoulder)
+        self.assertEqual(
+            updated_project.linear_reference_mode,
+            LinearReferenceMode.STATIONS_ONLY,
+        )
         self.assertEqual(updated_project.status, ProjectStatus.ACTIVE)
         self.assertGreater(updated_project.updated_at, updated_project.created_at)
 

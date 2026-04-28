@@ -31,7 +31,7 @@ from app.mapping_definitions.service import MappingDefinitionService
 from app.normalization.repository import InMemoryNormalizedUploadRepository
 from app.parsing.service import UploadParsingService
 from app.projects.repository import InMemoryProjectRepository
-from app.projects.schemas import ProjectStatus, ProjectWrite
+from app.projects.schemas import LinearReferenceMode, ProjectStatus, ProjectWrite
 from app.upload_mappings.repository import InMemoryUploadMappingRepository
 from app.upload_mappings.schemas import UploadMappingWrite
 from app.uploads.repository import InMemoryUploadRepository
@@ -65,6 +65,7 @@ class EnrichmentFoundationTests(unittest.TestCase):
                 start_station="100+00",
                 end_station="152+80",
                 description="Tie-table enrichment verification.",
+                linear_reference_mode=LinearReferenceMode.STATIONS_MILEPOSTS,
                 status=ProjectStatus.ACTIVE,
             )
         )
@@ -168,6 +169,7 @@ class EnrichmentFoundationTests(unittest.TestCase):
             upload_id=created_upload.id,
             enrichment_request=EnrichmentRequest(),
             upload_repository=self.upload_repository,
+            project_repository=self.project_repository,
             normalized_repository=self.normalized_repository,
             enrichment_repository=self.enrichment_repository,
         )
@@ -218,6 +220,77 @@ class EnrichmentFoundationTests(unittest.TestCase):
         )
         self.assertEqual(moving_average_result.points[1].station, "100+50.00")
         self.assertEqual(moving_average_result.points[1].raw_value, 3.0)
+
+    def test_stations_only_projects_enrich_without_project_mileposts(self) -> None:
+        self.project = self.project_repository.update(
+            self.project.id,
+            ProjectWrite(
+                project_code=self.project.project_code,
+                name=self.project.name,
+                lane_count=self.project.lane_count,
+                has_outside_shoulder=self.project.has_outside_shoulder,
+                has_inside_shoulder=self.project.has_inside_shoulder,
+                ramp_count=self.project.ramp_count,
+                linear_reference_mode=LinearReferenceMode.STATIONS_ONLY,
+                client_name=self.project.client_name,
+                route=self.project.route,
+                roadway=self.project.roadway,
+                direction=self.project.direction,
+                county=self.project.county,
+                state=self.project.state,
+                start_mp=self.project.start_mp,
+                end_mp=self.project.end_mp,
+                start_station=self.project.start_station,
+                end_station=self.project.end_station,
+                description=self.project.description,
+                status=self.project.status,
+            ),
+        )
+        created_upload = self._create_normalized_gpr_upload()
+
+        save_upload_distance_station_ties(
+            upload_id=created_upload.id,
+            tie_table_in=UploadDistanceStationTieTableWrite(
+                rows=[
+                    {"distance": 0, "station": "100+00"},
+                    {"distance": 100, "station": "101+00"},
+                ]
+            ),
+            upload_repository=self.upload_repository,
+            normalized_repository=self.normalized_repository,
+            enrichment_repository=self.enrichment_repository,
+        )
+        enrichment_summary = enrich_upload(
+            upload_id=created_upload.id,
+            enrichment_request=EnrichmentRequest(),
+            upload_repository=self.upload_repository,
+            project_repository=self.project_repository,
+            normalized_repository=self.normalized_repository,
+            enrichment_repository=self.enrichment_repository,
+        )
+        enriched_result = get_enriched_upload(
+            upload_id=created_upload.id,
+            limit=3,
+            offset=0,
+            upload_repository=self.upload_repository,
+            normalized_repository=self.normalized_repository,
+            enrichment_repository=self.enrichment_repository,
+        )
+        moving_average_summary = create_gpr_moving_average(
+            upload_id=created_upload.id,
+            request=GprMovingAverageRequest(
+                field_key="interface_depth_1",
+                window_distance=100,
+            ),
+            upload_repository=self.upload_repository,
+            normalized_repository=self.normalized_repository,
+            enrichment_repository=self.enrichment_repository,
+        )
+
+        self.assertEqual(enrichment_summary.enriched_row_count, 3)
+        self.assertEqual(enriched_result.rows[1].derived_station, "100+50.00")
+        self.assertIsNone(enriched_result.rows[1].derived_milepost)
+        self.assertIsNone(moving_average_summary.preview_points[0].milepost)
 
     def test_enrichment_routes_registered(self) -> None:
         paths = {route.path for route in app.routes}

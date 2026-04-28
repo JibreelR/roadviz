@@ -239,7 +239,7 @@ export type EnrichedUploadRow = {
   distance: number;
   derived_station: string;
   derived_station_value: number;
-  derived_milepost: number;
+  derived_milepost: number | null;
   linear_reference_method: "exact" | "interpolated" | "extrapolated";
 };
 
@@ -269,7 +269,7 @@ export type GprMovingAveragePoint = {
   channel_label: string;
   station: string;
   station_value: number;
-  milepost: number;
+  milepost: number | null;
   raw_value: number;
   moving_average: number;
 };
@@ -380,6 +380,10 @@ export async function getUploadPreview(
     method: "GET",
     signal,
   });
+}
+
+export function getUploadDownloadUrl(projectId: string, uploadId: string): string {
+  return `${API_BASE_URL}/projects/${projectId}/uploads/downloads/${uploadId}`;
 }
 
 export async function getMappingDefinitions(

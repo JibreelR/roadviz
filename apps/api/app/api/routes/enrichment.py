@@ -181,16 +181,19 @@ def enrich_upload(
     upload_id: UUID,
     enrichment_request: EnrichmentRequest | None = None,
     upload_repository: UploadRepository = Depends(get_upload_repository),
+    project_repository: ProjectRepository = Depends(get_project_repository),
     normalized_repository: NormalizedUploadRepository = Depends(
         get_normalized_upload_repository
     ),
     enrichment_repository: EnrichmentRepository = Depends(get_enrichment_repository),
 ) -> EnrichmentRunSummary:
     upload = read_upload_or_404(upload_id, upload_repository)
+    project = read_project_or_404(upload.project_id, project_repository)
     try:
         return _service(normalized_repository, enrichment_repository).apply_ties(
             upload,
             enrichment_request or EnrichmentRequest(),
+            linear_reference_mode=project.linear_reference_mode,
         )
     except EnrichmentError as exc:
         raise HTTPException(

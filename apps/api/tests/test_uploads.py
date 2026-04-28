@@ -20,7 +20,7 @@ from app.api.routes.upload_mapping import (
     validate_upload_mapping,
 )
 from app.api.routes.schema_templates import create_schema_template, list_schema_templates
-from app.api.routes.uploads import create_upload, list_project_uploads
+from app.api.routes.uploads import create_upload, download_upload, list_project_uploads
 from app.main import app
 from app.mapping_definitions.service import MappingDefinitionService
 from app.normalization.repository import InMemoryNormalizedUploadRepository
@@ -167,6 +167,20 @@ class UploadFoundationTests(unittest.TestCase):
         self.assertEqual(uploads[0].data_type, DataType.GPR)
         self.assertEqual(uploads[0].gpr_import_config.file_identifier, "Lane 1")
         self.assertIsNotNone(self.upload_repository.get_storage_path(created_upload.id))
+
+    def test_download_upload_returns_original_file(self) -> None:
+        created_upload = self._create_upload(
+            data_type=DataType.GPR,
+            filename="gpr-profile.csv",
+            content=b"distance,interface_1\n25,3.4\n",
+            notes="Initial field upload.",
+            gpr_config=self._default_gpr_config(),
+        )
+
+        response = download_upload(created_upload.id, self.upload_repository)
+
+        self.assertEqual(Path(response.path).read_bytes(), b"distance,interface_1\n25,3.4\n")
+        self.assertEqual(response.filename, "gpr-profile.csv")
 
     def test_upload_preview_and_mapping_definition_foundation(self) -> None:
         created_upload = self._create_upload(
@@ -837,6 +851,7 @@ class UploadFoundationTests(unittest.TestCase):
     def test_upload_and_template_routes_registered(self) -> None:
         paths = {route.path for route in app.routes}
         self.assertIn("/projects/{project_id}/uploads", paths)
+        self.assertIn("/projects/{project_id}/uploads/downloads/{upload_id}", paths)
         self.assertIn("/schema-templates", paths)
         self.assertIn("/uploads/{upload_id}/preview", paths)
         self.assertIn("/mapping-definitions", paths)

@@ -5,18 +5,21 @@ import { FormEvent, useEffect, useState, useTransition } from "react";
 
 import {
   createProject,
-  getProjectStationMilepostTies,
   listProjects,
-  saveProjectStationMilepostTies,
+  type LinearReferenceMode,
   type Project,
   type ProjectCreateInput,
-  type ProjectStationMilepostTieTable,
   type ProjectStatus,
 } from "../../lib/projects";
 
 type ProjectFormState = {
   project_code: string;
   name: string;
+  lane_count: string;
+  has_outside_shoulder: boolean;
+  has_inside_shoulder: boolean;
+  ramp_count: string;
+  linear_reference_mode: LinearReferenceMode;
   client_name: string;
   route: string;
   roadway: string;
@@ -31,14 +34,14 @@ type ProjectFormState = {
   status: ProjectStatus;
 };
 
-type ProjectTieRowForm = {
-  station: string;
-  milepost: string;
-};
-
 const initialFormState: ProjectFormState = {
   project_code: "",
   name: "",
+  lane_count: "1",
+  has_outside_shoulder: true,
+  has_inside_shoulder: false,
+  ramp_count: "0",
+  linear_reference_mode: "stations_mileposts",
   client_name: "",
   route: "",
   roadway: "",
@@ -52,11 +55,6 @@ const initialFormState: ProjectFormState = {
   description: "",
   status: "draft",
 };
-
-const defaultProjectTieRows: ProjectTieRowForm[] = [
-  { station: "0+00", milepost: "0" },
-  { station: "1+00", milepost: "0.02" },
-];
 
 const statusOptions: ProjectStatus[] = ["draft", "active", "completed", "archived"];
 
@@ -79,10 +77,23 @@ function toOptionalNumber(value: string): number | null {
   return parsed;
 }
 
+function toRequiredCount(value: string, label: string, minimum: number): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < minimum) {
+    throw new Error(`${label} must be at least ${minimum}.`);
+  }
+  return parsed;
+}
+
 function toProjectPayload(form: ProjectFormState): ProjectCreateInput {
   return {
     project_code: form.project_code.trim(),
     name: form.name.trim(),
+    lane_count: toRequiredCount(form.lane_count, "Lane count", 1),
+    has_outside_shoulder: form.has_outside_shoulder,
+    has_inside_shoulder: form.has_inside_shoulder,
+    ramp_count: toRequiredCount(form.ramp_count, "Ramp count", 0),
+    linear_reference_mode: form.linear_reference_mode,
     client_name: toOptionalText(form.client_name),
     route: toOptionalText(form.route),
     roadway: toOptionalText(form.roadway),
@@ -118,38 +129,26 @@ function formatTimestamp(timestamp: string): string {
   }).format(new Date(timestamp));
 }
 
-function isMissingProjectTieTableError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.message === "Project station/MP tie table not found."
-  );
-}
-
-function buildProjectTieRowsFromTable(
-  tieTable: ProjectStationMilepostTieTable,
-): ProjectTieRowForm[] {
-  return tieTable.rows.map((row) => ({
-    station: row.station,
-    milepost: String(row.milepost),
-  }));
+function describeElements(project: Project): string {
+  const parts = [`${project.lane_count} lane${project.lane_count === 1 ? "" : "s"}`];
+  if (project.has_outside_shoulder) {
+    parts.push("Outside shoulder");
+  }
+  if (project.has_inside_shoulder) {
+    parts.push("Inside shoulder");
+  }
+  if (project.ramp_count > 0) {
+    parts.push(`${project.ramp_count} ramp${project.ramp_count === 1 ? "" : "s"}`);
+  }
+  return parts.join(" | ");
 }
 
 export default function ProjectsClient() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [form, setForm] = useState<ProjectFormState>(initialFormState);
-  const [selectedTieProjectId, setSelectedTieProjectId] = useState<string>("");
-  const [projectTieRows, setProjectTieRows] = useState<ProjectTieRowForm[]>(
-    defaultProjectTieRows,
-  );
-  const [projectTieTable, setProjectTieTable] =
-    useState<ProjectStationMilepostTieTable | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingProjectTies, setIsLoadingProjectTies] = useState(false);
-  const [isSavingProjectTies, setIsSavingProjectTies] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [projectTieError, setProjectTieError] = useState<string | null>(null);
-  const [projectTieMessage, setProjectTieMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -160,7 +159,6 @@ export default function ProjectsClient() {
         setErrorMessage(null);
         const loadedProjects = await listProjects(controller.signal);
         setProjects(loadedProjects);
-        setSelectedTieProjectId((current) => current || loadedProjects[0]?.id || "");
       } catch (error) {
         if (controller.signal.aborted) {
           return;
@@ -180,51 +178,6 @@ export default function ProjectsClient() {
     return () => controller.abort();
   }, []);
 
-  useEffect(() => {
-    if (!selectedTieProjectId) {
-      setProjectTieTable(null);
-      setProjectTieRows(defaultProjectTieRows);
-      return;
-    }
-
-    const controller = new AbortController();
-
-    async function loadProjectTies() {
-      try {
-        setIsLoadingProjectTies(true);
-        setProjectTieError(null);
-        const loadedTieTable = await getProjectStationMilepostTies(
-          selectedTieProjectId,
-          controller.signal,
-        );
-        setProjectTieTable(loadedTieTable);
-        setProjectTieRows(buildProjectTieRowsFromTable(loadedTieTable));
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        if (isMissingProjectTieTableError(error)) {
-          setProjectTieTable(null);
-          setProjectTieRows(defaultProjectTieRows);
-          return;
-        }
-        setProjectTieError(
-          error instanceof Error
-            ? error.message
-            : "Project station/MP ties could not be loaded.",
-        );
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsLoadingProjectTies(false);
-        }
-      }
-    }
-
-    void loadProjectTies();
-
-    return () => controller.abort();
-  }, [selectedTieProjectId]);
-
   function updateField<K extends keyof ProjectFormState>(
     field: K,
     value: ProjectFormState[K],
@@ -242,7 +195,6 @@ export default function ProjectsClient() {
           const payload = toProjectPayload(form);
           const createdProject = await createProject(payload);
           setProjects((current) => [createdProject, ...current]);
-          setSelectedTieProjectId((current) => current || createdProject.id);
           setForm(initialFormState);
           setErrorMessage(null);
           setSuccessMessage(`Created project ${createdProject.project_code}.`);
@@ -255,89 +207,17 @@ export default function ProjectsClient() {
     });
   }
 
-  function handleProjectTieRowChange(
-    index: number,
-    updates: Partial<ProjectTieRowForm>,
-  ) {
-    setProjectTieRows((current) =>
-      current.map((row, rowIndex) =>
-        rowIndex === index ? { ...row, ...updates } : row,
-      ),
-    );
-    setProjectTieError(null);
-    setProjectTieMessage(null);
-  }
-
-  function handleAddProjectTieRow() {
-    setProjectTieRows((current) => [...current, { station: "", milepost: "" }]);
-    setProjectTieError(null);
-    setProjectTieMessage(null);
-  }
-
-  function handleRemoveProjectTieRow(index: number) {
-    setProjectTieRows((current) => current.filter((_, rowIndex) => rowIndex !== index));
-    setProjectTieError(null);
-    setProjectTieMessage(null);
-  }
-
-  function buildProjectTiePayload() {
-    const rows = projectTieRows.map((row) => {
-      const station = row.station.trim();
-      const milepost = Number.parseFloat(row.milepost);
-      if (!station) {
-        throw new Error("Each project tie row needs a station value.");
-      }
-      if (!Number.isFinite(milepost)) {
-        throw new Error("Project tie milepost values must be numeric.");
-      }
-      return { station, milepost };
-    });
-
-    if (rows.length < 2) {
-      throw new Error("Enter at least two project station/MP tie rows.");
-    }
-
-    return rows;
-  }
-
-  async function handleSaveProjectTies() {
-    if (!selectedTieProjectId) {
-      setProjectTieError("Create or select a project before saving station/MP ties.");
-      return;
-    }
-
-    try {
-      setIsSavingProjectTies(true);
-      setProjectTieError(null);
-      const savedTieTable = await saveProjectStationMilepostTies({
-        projectId: selectedTieProjectId,
-        rows: buildProjectTiePayload(),
-      });
-      setProjectTieTable(savedTieTable);
-      setProjectTieRows(buildProjectTieRowsFromTable(savedTieTable));
-      setProjectTieMessage("Project station/MP ties saved for reuse by uploads.");
-    } catch (error) {
-      setProjectTieError(
-        error instanceof Error
-          ? error.message
-          : "Project station/MP ties could not be saved.",
-      );
-    } finally {
-      setIsSavingProjectTies(false);
-    }
-  }
-
   return (
     <div className="stack-lg">
       <section className="panel">
         <div className="section-heading">
           <div>
             <p className="eyebrow">Create Project</p>
-            <h2>Start tracking a roadway evaluation job.</h2>
+            <h2>Set up the corridor and roadway elements.</h2>
           </div>
           <p className="section-copy">
-            Capture the basic corridor, client, and limits metadata now and plug in real
-            data workflows later.
+            Capture the project once, generate the roadway elements automatically, and
+            then move into the project workspace for GPR, coring, DCP, and FWD work.
           </p>
         </div>
 
@@ -361,6 +241,70 @@ export default function ProjectsClient() {
                 onChange={(event) => updateField("name", event.target.value)}
                 placeholder="I-80 Corridor Survey"
               />
+            </label>
+
+            <label>
+              <span>Lane count</span>
+              <input
+                type="number"
+                min={1}
+                max={24}
+                value={form.lane_count}
+                onChange={(event) => updateField("lane_count", event.target.value)}
+              />
+            </label>
+
+            <label>
+              <span>Ramp count</span>
+              <input
+                type="number"
+                min={0}
+                max={24}
+                value={form.ramp_count}
+                onChange={(event) => updateField("ramp_count", event.target.value)}
+              />
+            </label>
+
+            <label>
+              <span>Outside shoulder</span>
+              <select
+                value={form.has_outside_shoulder ? "yes" : "no"}
+                onChange={(event) =>
+                  updateField("has_outside_shoulder", event.target.value === "yes")
+                }
+              >
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Inside shoulder</span>
+              <select
+                value={form.has_inside_shoulder ? "yes" : "no"}
+                onChange={(event) =>
+                  updateField("has_inside_shoulder", event.target.value === "yes")
+                }
+              >
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Linear referencing</span>
+              <select
+                value={form.linear_reference_mode}
+                onChange={(event) =>
+                  updateField(
+                    "linear_reference_mode",
+                    event.target.value as LinearReferenceMode,
+                  )
+                }
+              >
+                <option value="stations_only">Stations only</option>
+                <option value="stations_mileposts">Stations + Mileposts</option>
+              </select>
             </label>
 
             <label>
@@ -417,23 +361,27 @@ export default function ProjectsClient() {
               />
             </label>
 
-            <label>
-              <span>Start MP</span>
-              <input
-                value={form.start_mp}
-                onChange={(event) => updateField("start_mp", event.target.value)}
-                placeholder="12.3"
-              />
-            </label>
+            {form.linear_reference_mode === "stations_mileposts" ? (
+              <>
+                <label>
+                  <span>Start MP</span>
+                  <input
+                    value={form.start_mp}
+                    onChange={(event) => updateField("start_mp", event.target.value)}
+                    placeholder="12.3"
+                  />
+                </label>
 
-            <label>
-              <span>End MP</span>
-              <input
-                value={form.end_mp}
-                onChange={(event) => updateField("end_mp", event.target.value)}
-                placeholder="18.7"
-              />
-            </label>
+                <label>
+                  <span>End MP</span>
+                  <input
+                    value={form.end_mp}
+                    onChange={(event) => updateField("end_mp", event.target.value)}
+                    placeholder="18.7"
+                  />
+                </label>
+              </>
+            ) : null}
 
             <label>
               <span>Start station</span>
@@ -485,8 +433,8 @@ export default function ProjectsClient() {
               {isPending ? "Saving..." : "Create project"}
             </button>
             <p className="inline-note">
-              Required now: project code and name. Everything else can be filled in as the
-              project definition matures.
+              At least one lane is required. RoadViz will generate lanes, optional
+              shoulders, and ramps automatically for the workspace.
             </p>
           </div>
         </form>
@@ -498,140 +446,12 @@ export default function ProjectsClient() {
       <section className="panel">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Project Station/MP Ties</p>
-            <h2>Define station to milepost once per project.</h2>
-          </div>
-          <p className="section-copy">
-            These project ties are reused during enrichment. Upload-specific GPR ties
-            only map collection distance to project station.
-          </p>
-        </div>
-
-        {projects.length === 0 ? (
-          <p className="empty-state">
-            Create a project before entering station to milepost ties.
-          </p>
-        ) : (
-          <div className="stack-sm">
-            <div className="form-grid">
-              <label className="field-full">
-                <span>Project</span>
-                <select
-                  value={selectedTieProjectId}
-                  onChange={(event) => {
-                    setSelectedTieProjectId(event.target.value);
-                    setProjectTieMessage(null);
-                    setProjectTieError(null);
-                  }}
-                >
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.project_code} | {project.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            {isLoadingProjectTies ? (
-              <p className="empty-state">Loading project station/MP ties...</p>
-            ) : (
-              <>
-                <div className="table-shell">
-                  <table className="projects-table tie-table">
-                    <thead>
-                      <tr>
-                        <th>Station</th>
-                        <th>Milepost</th>
-                        <th>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {projectTieRows.map((row, index) => (
-                        <tr key={`project-tie-row-${index}`}>
-                          <td>
-                            <input
-                              value={row.station}
-                              onChange={(event) =>
-                                handleProjectTieRowChange(index, {
-                                  station: event.target.value,
-                                })
-                              }
-                              placeholder="100+00"
-                            />
-                          </td>
-                          <td>
-                            <input
-                              type="number"
-                              step="any"
-                              value={row.milepost}
-                              onChange={(event) =>
-                                handleProjectTieRowChange(index, {
-                                  milepost: event.target.value,
-                                })
-                              }
-                              placeholder="10.0"
-                            />
-                          </td>
-                          <td>
-                            <button
-                              className="button-secondary button-inline"
-                              type="button"
-                              onClick={() => handleRemoveProjectTieRow(index)}
-                              disabled={projectTieRows.length <= 2}
-                            >
-                              Remove
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="form-actions">
-                  <button
-                    className="button-secondary"
-                    type="button"
-                    onClick={handleAddProjectTieRow}
-                  >
-                    Add tie row
-                  </button>
-                  <button
-                    className="button-primary"
-                    type="button"
-                    onClick={handleSaveProjectTies}
-                    disabled={isSavingProjectTies}
-                  >
-                    {isSavingProjectTies ? "Saving ties..." : "Save project ties"}
-                  </button>
-                  <p className="inline-note">
-                    {projectTieTable === null
-                      ? "No station/MP tie table has been saved for this project."
-                      : `Last saved ${formatTimestamp(projectTieTable.updated_at)}`}
-                  </p>
-                </div>
-              </>
-            )}
-
-            {projectTieError ? (
-              <p className="message error">{projectTieError}</p>
-            ) : null}
-            {projectTieMessage ? (
-              <p className="message success">{projectTieMessage}</p>
-            ) : null}
-          </div>
-        )}
-      </section>
-
-      <section className="panel">
-        <div className="section-heading">
-          <div>
             <p className="eyebrow">Project List</p>
-            <h2>Current projects</h2>
+            <h2>Open a project workspace</h2>
           </div>
           <p className="section-copy">
-            A simple operational view for the first RoadViz product object.
+            Use the workspace as the operational surface and keep the deeper upload and
+            mapping details tucked behind it.
           </p>
         </div>
 
@@ -647,12 +467,12 @@ export default function ProjectsClient() {
               <thead>
                 <tr>
                   <th>Project</th>
-                  <th>Client</th>
+                  <th>Elements</th>
                   <th>Route</th>
                   <th>Limits</th>
                   <th>Status</th>
                   <th>Updated</th>
-                  <th>Uploads</th>
+                  <th>Workspace</th>
                 </tr>
               </thead>
               <tbody>
@@ -662,7 +482,7 @@ export default function ProjectsClient() {
                       <div className="table-primary">{project.name}</div>
                       <div className="table-secondary">{project.project_code}</div>
                     </td>
-                    <td>{project.client_name ?? "Not set"}</td>
+                    <td>{describeElements(project)}</td>
                     <td>
                       {[project.route, project.roadway, project.direction]
                         .filter(Boolean)
@@ -677,10 +497,10 @@ export default function ProjectsClient() {
                     <td>{formatTimestamp(project.updated_at)}</td>
                     <td>
                       <Link
-                        className="button-secondary button-inline"
-                        href={`/projects/${project.id}/uploads`}
+                        className="button-primary button-inline"
+                        href={`/projects/${project.id}`}
                       >
-                        Open uploads
+                        Open workspace
                       </Link>
                     </td>
                   </tr>

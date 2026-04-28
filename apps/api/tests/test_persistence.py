@@ -34,7 +34,7 @@ from app.mapping_definitions.service import MappingDefinitionService
 from app.normalization.db_repository import DatabaseNormalizedUploadRepository
 from app.parsing.service import UploadParsingService
 from app.projects.db_repository import DatabaseProjectRepository
-from app.projects.schemas import ProjectStatus, ProjectWrite
+from app.projects.schemas import LinearReferenceMode, ProjectStatus, ProjectWrite
 from app.schema_templates.db_repository import DatabaseSchemaTemplateRepository
 from app.schema_templates.schemas import SchemaTemplateWrite
 from app.upload_mappings.db_repository import DatabaseUploadMappingRepository
@@ -71,6 +71,11 @@ class DatabasePersistenceTests(unittest.TestCase):
             ProjectWrite(
                 project_code="NJDOT-DB-001",
                 name="Database Persistence Pilot",
+                lane_count=3,
+                has_outside_shoulder=True,
+                has_inside_shoulder=False,
+                ramp_count=1,
+                linear_reference_mode=LinearReferenceMode.STATIONS_MILEPOSTS,
                 client_name="NJDOT",
                 route="I-287",
                 roadway="Mainline",
@@ -137,6 +142,12 @@ class DatabasePersistenceTests(unittest.TestCase):
 
         self.assertIsNotNone(loaded_project)
         self.assertEqual(loaded_project.name, self.project.name)
+        self.assertEqual(loaded_project.lane_count, 3)
+        self.assertTrue(loaded_project.has_outside_shoulder)
+        self.assertEqual(
+            loaded_project.linear_reference_mode,
+            LinearReferenceMode.STATIONS_MILEPOSTS,
+        )
         self.assertIsNotNone(loaded_upload)
         self.assertEqual(loaded_upload.filename, "persistent-gpr.csv")
         self.assertEqual(loaded_upload.gpr_import_config.file_identifier, "Lane 1")
@@ -229,6 +240,7 @@ class DatabasePersistenceTests(unittest.TestCase):
             created_upload.id,
             EnrichmentRequest(),
             self.upload_repository,
+            self.project_repository,
             self.normalized_repository,
             self.enrichment_repository,
         )

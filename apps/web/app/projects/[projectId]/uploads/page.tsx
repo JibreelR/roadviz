@@ -16,13 +16,16 @@ export default async function ProjectUploadsPage({
   return (
     <main className="page-shell">
       <section className="hero hero-compact">
-        <p className="eyebrow">Project Uploads</p>
-        <h1>Capture incoming pavement files before full parsing arrives.</h1>
+        <p className="eyebrow">Upload Details</p>
+        <h1>Legacy upload intake and review for deeper technical work.</h1>
         <p className="lede">
-          Tie uploaded source files to a RoadViz project, mark the pavement data type,
-          and review the schema templates that will guide later normalization.
+          The main operational flow now lives in the project workspace. Keep this page
+          available when you want the fuller upload intake and template view.
         </p>
         <div className="hero-actions">
+          <Link className="button-secondary" href={`/projects/${projectId}`}>
+            Back to workspace
+          </Link>
           <Link className="button-secondary" href="/projects">
             Back to projects
           </Link>

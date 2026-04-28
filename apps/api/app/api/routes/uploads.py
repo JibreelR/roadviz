@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import ValidationError
 
 from app.api.dependencies import (
@@ -135,3 +137,29 @@ def list_project_uploads(
 ) -> list[Upload]:
     read_project_or_404(project_id, project_repository)
     return upload_repository.list_by_project(project_id)
+
+
+@router.get("/downloads/{upload_id}", response_class=FileResponse, tags=["uploads"])
+def download_upload(
+    upload_id: UUID,
+    upload_repository: UploadRepository = Depends(get_upload_repository),
+) -> FileResponse:
+    upload = upload_repository.get(upload_id)
+    if upload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload not found.")
+
+    storage_path = upload_repository.get_storage_path(upload_id)
+    if storage_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Stored upload file not found.",
+        )
+
+    source_file = Path(storage_path)
+    if not source_file.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Stored upload file not found.",
+        )
+
+    return FileResponse(path=source_file, filename=upload.filename)

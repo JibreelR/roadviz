@@ -79,7 +79,7 @@ class EnrichedUploadRow(BaseModel):
     distance: float
     derived_station: str
     derived_station_value: float
-    derived_milepost: float
+    derived_milepost: float | None = None
     linear_reference_method: LinearReferenceMethod
 
 
@@ -116,7 +116,7 @@ class GprMovingAveragePoint(BaseModel):
     channel_label: str
     station: str
     station_value: float
-    milepost: float
+    milepost: float | None = None
     raw_value: float
     moving_average: float
 

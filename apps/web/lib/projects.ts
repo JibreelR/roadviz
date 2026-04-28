@@ -1,9 +1,15 @@
 export type ProjectStatus = "draft" | "active" | "completed" | "archived";
+export type LinearReferenceMode = "stations_only" | "stations_mileposts";
 
 export type Project = {
   id: string;
   project_code: string;
   name: string;
+  lane_count: number;
+  has_outside_shoulder: boolean;
+  has_inside_shoulder: boolean;
+  ramp_count: number;
+  linear_reference_mode: LinearReferenceMode;
   client_name: string | null;
   route: string | null;
   roadway: string | null;
@@ -23,6 +29,11 @@ export type Project = {
 export type ProjectCreateInput = {
   project_code: string;
   name: string;
+  lane_count: number;
+  has_outside_shoulder: boolean;
+  has_inside_shoulder: boolean;
+  ramp_count: number;
+  linear_reference_mode: LinearReferenceMode;
   client_name: string | null;
   route: string | null;
   roadway: string | null;
@@ -85,6 +96,23 @@ export async function listProjects(signal?: AbortSignal): Promise<Project[]> {
 export async function createProject(project: ProjectCreateInput): Promise<Project> {
   return requestJson<Project>("/projects", {
     method: "POST",
+    body: JSON.stringify(project),
+  });
+}
+
+export async function getProject(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<Project> {
+  return requestJson<Project>(`/projects/${projectId}`, { method: "GET", signal });
+}
+
+export async function updateProject(
+  projectId: string,
+  project: ProjectCreateInput,
+): Promise<Project> {
+  return requestJson<Project>(`/projects/${projectId}`, {
+    method: "PUT",
     body: JSON.stringify(project),
   });
 }

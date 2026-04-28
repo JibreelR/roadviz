@@ -24,6 +24,11 @@ class DatabaseSchemaManager:
                         id UUID PRIMARY KEY,
                         project_code VARCHAR(50) NOT NULL,
                         name VARCHAR(200) NOT NULL,
+                        lane_count INTEGER NOT NULL DEFAULT 1,
+                        has_outside_shoulder BOOLEAN NOT NULL DEFAULT FALSE,
+                        has_inside_shoulder BOOLEAN NOT NULL DEFAULT FALSE,
+                        ramp_count INTEGER NOT NULL DEFAULT 0,
+                        linear_reference_mode VARCHAR(40) NOT NULL DEFAULT 'stations_mileposts',
                         client_name VARCHAR(200),
                         route VARCHAR(100),
                         roadway VARCHAR(200),
@@ -39,6 +44,37 @@ class DatabaseSchemaManager:
                         created_at TIMESTAMPTZ NOT NULL,
                         updated_at TIMESTAMPTZ NOT NULL
                     )
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE projects
+                    ADD COLUMN IF NOT EXISTS lane_count INTEGER NOT NULL DEFAULT 1
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE projects
+                    ADD COLUMN IF NOT EXISTS has_outside_shoulder BOOLEAN NOT NULL DEFAULT FALSE
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE projects
+                    ADD COLUMN IF NOT EXISTS has_inside_shoulder BOOLEAN NOT NULL DEFAULT FALSE
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE projects
+                    ADD COLUMN IF NOT EXISTS ramp_count INTEGER NOT NULL DEFAULT 0
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE projects
+                    ADD COLUMN IF NOT EXISTS linear_reference_mode VARCHAR(40) NOT NULL
+                    DEFAULT 'stations_mileposts'
                     """
                 )
                 cursor.execute(

@@ -17,15 +17,18 @@ export default async function UploadMappingPage({
   return (
     <main className="page-shell">
       <section className="hero hero-compact">
-        <p className="eyebrow">Upload Mapping</p>
-        <h1>Preview source columns and map them into RoadViz fields.</h1>
+        <p className="eyebrow">Upload Details</p>
+        <h1>Technical mapping, validation, normalization, and enrichment detail.</h1>
         <p className="lede">
-          This foundation keeps the mapping contract explicit so later parsing and
-          normalization can build on a validated upload configuration.
+          Use this deeper view when the project workspace needs a closer look at source
+          columns, saved mappings, normalized rows, enriched rows, or analysis outputs.
         </p>
         <div className="hero-actions">
+          <Link className="button-secondary" href={`/projects/${projectId}`}>
+            Back to workspace
+          </Link>
           <Link className="button-secondary" href={`/projects/${projectId}/uploads`}>
-            Back to uploads
+            Upload details
           </Link>
           <Link className="button-secondary" href="/projects">
             Projects
