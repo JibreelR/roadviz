@@ -27,6 +27,15 @@ class StationTieRowMixin(BaseModel):
 
 class ProjectStationMilepostTieRowWrite(StationTieRowMixin):
     milepost: float
+    description: str | None = Field(default=None, max_length=300)
+
+    @field_validator("description")
+    @classmethod
+    def normalize_description(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
 
 
 class ProjectStationMilepostTieRow(ProjectStationMilepostTieRowWrite):

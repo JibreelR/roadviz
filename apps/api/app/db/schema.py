@@ -39,6 +39,7 @@ class DatabaseSchemaManager:
                         end_mp DOUBLE PRECISION,
                         start_station VARCHAR(100),
                         end_station VARCHAR(100),
+                        excluded_segments JSONB NOT NULL DEFAULT '[]'::jsonb,
                         description TEXT,
                         status VARCHAR(20) NOT NULL,
                         created_at TIMESTAMPTZ NOT NULL,
@@ -75,6 +76,13 @@ class DatabaseSchemaManager:
                     ALTER TABLE projects
                     ADD COLUMN IF NOT EXISTS linear_reference_mode VARCHAR(40) NOT NULL
                     DEFAULT 'stations_mileposts'
+                    """
+                )
+                cursor.execute(
+                    """
+                    ALTER TABLE projects
+                    ADD COLUMN IF NOT EXISTS excluded_segments JSONB NOT NULL
+                    DEFAULT '[]'::jsonb
                     """
                 )
                 cursor.execute(

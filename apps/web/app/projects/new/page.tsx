@@ -1,18 +1,8 @@
 import Link from "next/link";
 
-import WorkspaceClient from "./workspace-client";
+import NewProjectClient from "./new-project-client";
 
-type ProjectWorkspacePageProps = {
-  params: Promise<{
-    projectId: string;
-  }>;
-};
-
-export default async function ProjectWorkspacePage({
-  params,
-}: ProjectWorkspacePageProps) {
-  const { projectId } = await params;
-
+export default function NewProjectPage() {
   return (
     <main className="page-shell">
       <header className="topbar">
@@ -23,11 +13,10 @@ export default async function ProjectWorkspacePage({
           <Link className="topbar-link" href="/projects">
             Projects
           </Link>
-          <span className="topbar-link topbar-link-active">Workspace</span>
         </nav>
       </header>
 
-      <WorkspaceClient projectId={projectId} />
+      <NewProjectClient />
     </main>
   );
 }

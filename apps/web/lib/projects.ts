@@ -1,6 +1,12 @@
 export type ProjectStatus = "draft" | "active" | "completed" | "archived";
 export type LinearReferenceMode = "stations_only" | "stations_mileposts";
 
+export type ProjectExcludedSegment = {
+  stop_station: string;
+  resume_station: string;
+  description: string | null;
+};
+
 export type Project = {
   id: string;
   project_code: string;
@@ -20,6 +26,7 @@ export type Project = {
   end_mp: number | null;
   start_station: string | null;
   end_station: string | null;
+  excluded_segments: ProjectExcludedSegment[];
   description: string | null;
   status: ProjectStatus;
   created_at: string;
@@ -44,6 +51,7 @@ export type ProjectCreateInput = {
   end_mp: number | null;
   start_station: string | null;
   end_station: string | null;
+  excluded_segments?: ProjectExcludedSegment[];
   description: string | null;
   status: ProjectStatus;
 };
@@ -52,6 +60,7 @@ export type ProjectStationMilepostTieRow = {
   station: string;
   milepost: number;
   station_value: number;
+  description: string | null;
 };
 
 export type ProjectStationMilepostTieTable = {
@@ -63,6 +72,7 @@ export type ProjectStationMilepostTieTable = {
 export type ProjectStationMilepostTieRowInput = {
   station: string;
   milepost: number;
+  description?: string | null;
 };
 
 const API_BASE_URL =
@@ -77,6 +87,34 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     },
     cache: "no-store",
   });
+
+  if (!response.ok) {
+    const errorBody = (await response.json().catch(() => null)) as
+      | { detail?: string }
+      | null;
+    const message = errorBody?.detail ?? "The request could not be completed.";
+    throw new Error(message);
+  }
+
+  return (await response.json()) as T;
+}
+
+async function requestOptionalJson<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T | null> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
 
   if (!response.ok) {
     const errorBody = (await response.json().catch(() => null)) as
@@ -120,8 +158,8 @@ export async function updateProject(
 export async function getProjectStationMilepostTies(
   projectId: string,
   signal?: AbortSignal,
-): Promise<ProjectStationMilepostTieTable> {
-  return requestJson<ProjectStationMilepostTieTable>(
+): Promise<ProjectStationMilepostTieTable | null> {
+  return requestOptionalJson<ProjectStationMilepostTieTable>(
     `/projects/${projectId}/station-milepost-ties`,
     { method: "GET", signal },
   );

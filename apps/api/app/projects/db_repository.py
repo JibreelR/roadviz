@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
+from psycopg.types.json import Jsonb
+
 from app.db.connection import Database
 from app.projects.schemas import Project, ProjectWrite, utc_now
 
@@ -44,6 +46,7 @@ class DatabaseProjectRepository:
                         end_mp,
                         start_station,
                         end_station,
+                        excluded_segments,
                         description,
                         status,
                         created_at,
@@ -68,6 +71,7 @@ class DatabaseProjectRepository:
                         %(end_mp)s,
                         %(start_station)s,
                         %(end_station)s,
+                        %(excluded_segments)s,
                         %(description)s,
                         %(status)s,
                         %(created_at)s,
@@ -93,6 +97,12 @@ class DatabaseProjectRepository:
                         "end_mp": project.end_mp,
                         "start_station": project.start_station,
                         "end_station": project.end_station,
+                        "excluded_segments": Jsonb(
+                            [
+                                segment.model_dump(mode="json")
+                                for segment in project.excluded_segments
+                            ]
+                        ),
                         "description": project.description,
                         "status": project.status.value,
                         "created_at": project.created_at,
@@ -126,6 +136,7 @@ class DatabaseProjectRepository:
                         end_mp,
                         start_station,
                         end_station,
+                        excluded_segments,
                         description,
                         status,
                         created_at,
@@ -162,6 +173,7 @@ class DatabaseProjectRepository:
                         end_mp,
                         start_station,
                         end_station,
+                        excluded_segments,
                         description,
                         status,
                         created_at,
@@ -201,6 +213,7 @@ class DatabaseProjectRepository:
                         end_mp = %(end_mp)s,
                         start_station = %(start_station)s,
                         end_station = %(end_station)s,
+                        excluded_segments = %(excluded_segments)s,
                         description = %(description)s,
                         status = %(status)s,
                         updated_at = %(updated_at)s
@@ -224,6 +237,7 @@ class DatabaseProjectRepository:
                         end_mp,
                         start_station,
                         end_station,
+                        excluded_segments,
                         description,
                         status,
                         created_at,
@@ -231,6 +245,12 @@ class DatabaseProjectRepository:
                     """,
                     {
                         **project_in.model_dump(),
+                        "excluded_segments": Jsonb(
+                            [
+                                segment.model_dump(mode="json")
+                                for segment in project_in.excluded_segments
+                            ]
+                        ),
                         "linear_reference_mode": project_in.linear_reference_mode.value,
                         "status": project_in.status.value,
                         "updated_at": utc_now(),

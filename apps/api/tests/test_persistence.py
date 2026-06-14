@@ -86,6 +86,13 @@ class DatabasePersistenceTests(unittest.TestCase):
                 end_mp=12.1,
                 start_station="105+00",
                 end_station="121+00",
+                excluded_segments=[
+                    {
+                        "stop_station": "110+00",
+                        "resume_station": "111+50",
+                        "description": "Bridge deck",
+                    }
+                ],
                 description="Persistence verification project.",
                 status=ProjectStatus.ACTIVE,
             )
@@ -148,6 +155,8 @@ class DatabasePersistenceTests(unittest.TestCase):
             loaded_project.linear_reference_mode,
             LinearReferenceMode.STATIONS_MILEPOSTS,
         )
+        self.assertEqual(len(loaded_project.excluded_segments), 1)
+        self.assertEqual(loaded_project.excluded_segments[0].stop_station, "110+00")
         self.assertIsNotNone(loaded_upload)
         self.assertEqual(loaded_upload.filename, "persistent-gpr.csv")
         self.assertEqual(loaded_upload.gpr_import_config.file_identifier, "Lane 1")
@@ -216,8 +225,16 @@ class DatabasePersistenceTests(unittest.TestCase):
             self.project.id,
             ProjectStationMilepostTieTableWrite(
                 rows=[
-                    {"station": "100+00", "milepost": 10.0},
-                    {"station": "100+25", "milepost": 10.005},
+                    {
+                        "station": "100+00",
+                        "milepost": 10.0,
+                        "description": "Project start",
+                    },
+                    {
+                        "station": "100+25",
+                        "milepost": 10.005,
+                        "description": "Quarter station",
+                    },
                 ]
             ),
             self.project_repository,
@@ -326,6 +343,7 @@ class DatabasePersistenceTests(unittest.TestCase):
             "Surface",
         )
         self.assertEqual(persisted_project_ties.rows[0].milepost, 10.0)
+        self.assertEqual(persisted_project_ties.rows[0].description, "Project start")
         self.assertEqual(persisted_upload_ties.rows[0].station, "100+00")
         self.assertEqual(persisted_enriched.enriched_row_count, 2)
         self.assertEqual(persisted_enriched.rows[1].derived_station, "100+25.00")

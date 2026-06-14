@@ -50,6 +50,7 @@ class LinearReferencingEnrichmentService:
                 station=row.station,
                 station_value=parse_station_value(row.station),
                 milepost=row.milepost,
+                description=row.description,
             )
             for row in tie_table_in.rows
         ]

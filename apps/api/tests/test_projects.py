@@ -35,6 +35,13 @@ class ProjectCrudTests(unittest.TestCase):
             end_mp=18.7,
             start_station="123+00",
             end_station="187+00",
+            excluded_segments=[
+                {
+                    "stop_station": "140+00",
+                    "resume_station": "142+50",
+                    "description": "Bridge deck exclusion",
+                }
+            ],
             description="Initial pavement evaluation project.",
             status=ProjectStatus.DRAFT,
         )
@@ -50,6 +57,11 @@ class ProjectCrudTests(unittest.TestCase):
         self.assertEqual(
             projects[0].linear_reference_mode,
             LinearReferenceMode.STATIONS_MILEPOSTS,
+        )
+        self.assertEqual(len(projects[0].excluded_segments), 1)
+        self.assertEqual(
+            projects[0].excluded_segments[0].description,
+            "Bridge deck exclusion",
         )
         self.assertEqual(projects[0].status, ProjectStatus.DRAFT)
 
@@ -79,6 +91,7 @@ class ProjectCrudTests(unittest.TestCase):
                 end_mp=18.7,
                 start_station="123+00",
                 end_station="187+00",
+                excluded_segments=[],
                 description="Updated scope for the first project phase.",
                 status=ProjectStatus.ACTIVE,
             ),
@@ -101,6 +114,37 @@ class ProjectCrudTests(unittest.TestCase):
 
         self.assertEqual(context.exception.status_code, 404)
         self.assertEqual(context.exception.detail, "Project not found.")
+
+    def test_invalid_excluded_segment_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            ProjectWrite(
+                project_code="NJDOT-002",
+                name="Invalid Exclusion",
+                lane_count=1,
+                has_outside_shoulder=False,
+                has_inside_shoulder=False,
+                ramp_count=0,
+                linear_reference_mode=LinearReferenceMode.STATIONS_ONLY,
+                client_name="NJDOT",
+                route="I-80",
+                roadway="Mainline",
+                direction="WB",
+                county="Morris",
+                state="NJ",
+                start_mp=None,
+                end_mp=None,
+                start_station="100+00",
+                end_station="120+00",
+                excluded_segments=[
+                    {
+                        "stop_station": "125+00",
+                        "resume_station": "126+00",
+                        "description": "Outside project limits",
+                    }
+                ],
+                description=None,
+                status=ProjectStatus.DRAFT,
+            )
 
     def test_project_routes_registered(self) -> None:
         paths = {route.path for route in app.routes}
