@@ -65,7 +65,7 @@ export default function ProjectsClient() {
     }
 
     setImportMessage(
-      `Project package import shell is ready. Selected ${selectedFile.name}. Backend package import wiring comes next.`,
+      `Selected ${selectedFile.name}. Project import is not available yet.`,
     );
     event.target.value = "";
   }
@@ -76,9 +76,7 @@ export default function ProjectsClient() {
         <div>
           <p className="eyebrow">Project Registry</p>
           <h1>RoadViz projects</h1>
-          <p className="section-copy">
-            Open an existing project workspace or start a new project setup.
-          </p>
+          <p className="section-copy">Open a project or create a new one.</p>
         </div>
 
         <div className="registry-actions">
@@ -109,9 +107,7 @@ export default function ProjectsClient() {
         <p className="empty-state">Loading projects...</p>
       ) : projects.length === 0 ? (
         <div className="registry-empty">
-          <p className="empty-state">
-            No projects yet. Create a new project to open the first workspace.
-          </p>
+          <p className="empty-state">No projects yet.</p>
           <Link className="button-primary" href="/projects/new">
             New Project
           </Link>

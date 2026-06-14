@@ -217,7 +217,7 @@ function validateTieDrafts(rows: TieDraft[]): string[] {
   );
 
   if (normalizedRows.length < 2) {
-    issues.push("At least 2 Station ↔ MP tie points are required.");
+    issues.push("At least 2 station-to-MP tie points are required.");
     return issues;
   }
 
@@ -448,7 +448,7 @@ export default function ReferencingTab({
         buildProjectPayload(project, draft),
       );
       onProjectUpdated(updatedProject);
-      setProjectMessage("Referencing limits saved.");
+      setProjectMessage("Referencing saved.");
     } catch (error) {
       setProjectError(
         error instanceof Error ? error.message : "Referencing limits could not be saved.",
@@ -475,7 +475,7 @@ export default function ReferencingTab({
       });
       setSavedProjectTies(savedTieTable.rows);
       setTieDrafts(buildTieDraftRows(savedTieTable.rows));
-      setTieMessage("Station ↔ MP ties saved.");
+      setTieMessage("Station-to-MP ties saved.");
       setIsTieModalOpen(false);
     } catch (error) {
       setTieError(error instanceof Error ? error.message : "Tie table could not be saved.");
@@ -493,10 +493,7 @@ export default function ReferencingTab({
         <div>
           <p className="eyebrow">Referencing</p>
           <h2>Project limits and route referencing</h2>
-          <p className="inline-note">
-            Complete this setup before the testing modules unlock. Upload-level
-            distance-to-station ties stay with each file later in the workflow.
-          </p>
+          <p className="inline-note">Set limits and route ties.</p>
         </div>
         <span
           className={`status-pill ${
@@ -546,10 +543,7 @@ export default function ReferencingTab({
           <h2>Excluded Segments</h2>
         </div>
         {draft.excluded_segments.length === 0 ? (
-          <p className="inline-note">
-            No excluded segments yet. Add rows only for gaps such as bridges, ramps,
-            or areas outside the testing run.
-          </p>
+          <p className="inline-note">Optional.</p>
         ) : null}
         <div className="repeatable-row-list">
           {draft.excluded_segments.map((segment) => (
@@ -630,16 +624,13 @@ export default function ReferencingTab({
           />
           <span>Route includes Mileposts</span>
         </label>
-        <p className="inline-note">
-          If mileposts are enabled, project Station ↔ MP ties are required before the
-          rest of the project workflow unlocks.
-        </p>
+        <p className="inline-note">Required only when mileposts are used.</p>
       </div>
 
       {showTieSection ? (
         <div className="form-section">
           <div className="form-section-header">
-            <h2>Station ↔ MP Ties</h2>
+            <h2>Station to MP Ties</h2>
           </div>
           <div className="workspace-choice-row">
             <div>
@@ -650,10 +641,7 @@ export default function ReferencingTab({
                       savedProjectTies.length === 1 ? "" : "s"
                     } saved`}
               </div>
-              <p className="inline-note">
-                These ties are entered once at the project level and reused by later
-                enrichment workflows.
-              </p>
+              <p className="inline-note">Project-level ties.</p>
             </div>
             <button
               className="button-secondary button-inline"
@@ -661,7 +649,7 @@ export default function ReferencingTab({
               onClick={openTieModal}
               disabled={isLoadingTies}
             >
-              Set Station ↔ MP Ties
+              Set Station to MP Ties
             </button>
           </div>
           {savedProjectTies.length > 0 ? (
@@ -679,7 +667,7 @@ export default function ReferencingTab({
                     <tr key={`${row.station}-${row.milepost}-${index}`}>
                       <td>{row.station}</td>
                       <td>{row.milepost}</td>
-                      <td>{row.description ?? "—"}</td>
+                      <td>{row.description ?? "-"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -701,7 +689,7 @@ export default function ReferencingTab({
           onClick={() => void handleProjectSave()}
           disabled={isSavingProject || isSavingTies}
         >
-          {isSavingProject ? "Saving..." : "Save Referencing Setup"}
+          {isSavingProject ? "Saving..." : "Save Referencing"}
         </button>
       </div>
 
@@ -724,11 +712,8 @@ export default function ReferencingTab({
           >
             <div className="modal-header">
               <div>
-                <h3 id="project-ties-modal-title">Station ↔ MP Ties</h3>
-                <p className="inline-note">
-                  Enter at least two project tie points. Rows are saved in station
-                  order.
-                </p>
+                <h3 id="project-ties-modal-title">Station to MP Ties</h3>
+                <p className="inline-note">Enter at least two tie points.</p>
               </div>
               <button
                 className="button-secondary button-inline"

@@ -139,11 +139,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             <p className="eyebrow">Project Workspace</p>
             <h1>{project.name}</h1>
           </div>
-          <p className="section-copy">
-            Referencing is the first required setup step. Complete the project
-            station limits and route-referencing configuration here before the
-            testing modules unlock.
-          </p>
+          <p className="section-copy">Complete referencing to unlock the modules.</p>
         </div>
 
         <div className="workspace-summary-grid">
@@ -202,13 +198,11 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
           <div>
             <p className="eyebrow">{activeTabLabel}</p>
             <h2>
-              {activeTab === "referencing"
-                ? "Complete project referencing first"
-                : `${activeTabLabel} workspace shell`}
+              {activeTab === "referencing" ? "Referencing" : activeTabLabel}
             </h2>
           </div>
           {activeTab !== "referencing" && !referencingComplete ? (
-            <span className="status-pill status-draft">Blocked until referencing</span>
+            <span className="status-pill status-draft">Blocked</span>
           ) : null}
         </div>
 
@@ -238,10 +232,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             </div>
             <div className="placeholder-panel">
               <div className="table-primary">GPR module shell ready</div>
-              <p className="inline-note">
-                The GPR workspace is being reshaped around clean upload, mapping, and
-                plotting sections. Detailed behavior stays out of this phase.
-              </p>
+              <p className="inline-note">Upload, mapping, and plot settings live here.</p>
             </div>
           </div>
         ) : null}
@@ -249,30 +240,21 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         {activeTab === "coring" ? (
           <div className="placeholder-panel">
             <div className="table-primary">Import Coring Data</div>
-            <p className="inline-note">
-              This tab is reserved for the future coring import model and supporting
-              workspace tools.
-            </p>
+            <p className="inline-note">Coring tools will be added here.</p>
           </div>
         ) : null}
 
         {activeTab === "dcp" ? (
           <div className="placeholder-panel">
             <div className="table-primary">DCP workspace placeholder</div>
-            <p className="inline-note">
-              The DCP module shell is in place and will be wired into the project
-              workspace in a later phase.
-            </p>
+            <p className="inline-note">DCP tools will be added here.</p>
           </div>
         ) : null}
 
         {activeTab === "fwd" ? (
           <div className="placeholder-panel">
             <div className="table-primary">FWD workspace placeholder</div>
-            <p className="inline-note">
-              The FWD module shell is in place and ready for detailed workflow work in
-              a later phase.
-            </p>
+            <p className="inline-note">FWD tools will be added here.</p>
           </div>
         ) : null}
 
@@ -294,10 +276,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
             </div>
             <div className="placeholder-panel">
               <div className="table-primary">Dashboard structure ready</div>
-              <p className="inline-note">
-                General, module-specific, and combined dashboard views now have a clear
-                place in the product structure without bringing charts into this phase.
-              </p>
+              <p className="inline-note">Dashboard views will be added here.</p>
             </div>
           </div>
         ) : null}
@@ -305,10 +284,7 @@ export default function WorkspaceClient({ projectId }: { projectId: string }) {
         {activeTab === "report" ? (
           <div className="placeholder-panel">
             <div className="table-primary">Report placeholder</div>
-            <p className="inline-note">
-              Reporting will plug into this tab once the core project and module flows
-              are in place.
-            </p>
+            <p className="inline-note">Reports will be added here.</p>
           </div>
         ) : null}
       </section>

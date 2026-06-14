@@ -167,10 +167,7 @@ export default function NewProjectClient() {
             <p className="eyebrow">New Project</p>
             <h1>Create a RoadViz project</h1>
           </div>
-          <p className="section-copy">
-            Capture the project details first. Referencing setup and module workflows
-            will continue from the project workspace.
-          </p>
+          <p className="section-copy">Set up the project record and continue.</p>
         </div>
 
         <form className="project-form" onSubmit={handleSubmit}>
@@ -269,7 +266,7 @@ export default function NewProjectClient() {
                 ))}
               </div>
               <p className="inline-note">
-                Selected directions:{" "}
+                Selected:{" "}
                 {selectedDirections.length === 0 ? "None yet" : selectedDirections.join(", ")}
               </p>
             </div>
